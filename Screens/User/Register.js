@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Linking, Button, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Linking, Alert, ScrollView } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useNavigation } from '@react-navigation/native';
 
@@ -10,7 +10,6 @@ import AddressMapPicker from "../../Shared/AddressMapPicker";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
 import Toast from "react-native-toast-message";
-import { Camera, CameraType } from 'expo-camera';
 import { Ionicons } from "@expo/vector-icons";
 import mime from "mime";
 
@@ -27,10 +26,6 @@ const Register = (props) => {
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState("");
-    const [launchCam, setLaunchCam] = useState(false)
-    const [type, setType] = useState(null);
-    const [hasCameraPermission, setHasCameraPermission] = useState(null);
-    const [camera, setCamera] = useState(null);
     const [image, setImage] = useState(null);
     const [mainImage, setMainImage] = useState('');
     const [location, setLocation] = useState(false);
@@ -60,11 +55,11 @@ const Register = (props) => {
     };
 
     const takePhoto = async () => {
-        setLaunchCam(true)
         const c = await ImagePicker.requestCameraPermissionsAsync();
 
         if (c.status === "granted") {
             let result = await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
                 aspect: [4, 3],
                 quality: 1,
             });
@@ -74,6 +69,18 @@ const Register = (props) => {
                 setImage(result.assets[0].uri);
             }
         }
+    };
+
+    const handleProfileImagePress = () => {
+        Alert.alert(
+            'Profile Photo',
+            'Choose how you want to add your photo.',
+            [
+                { text: 'Take Photo', onPress: takePhoto },
+                { text: 'Choose from Gallery', onPress: pickImage },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
     };
 
     const register = () => {
@@ -155,7 +162,7 @@ const Register = (props) => {
 
     const pickImage = async () => {
         let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images', 'videos'],
+            mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [4, 3],
             quality: 1,
@@ -168,10 +175,6 @@ const Register = (props) => {
     };
 
     useEffect(() => {
-        (async () => {
-            const cameraStatus = await Camera.requestCameraPermissionsAsync();
-            setHasCameraPermission(cameraStatus.status === 'granted');
-        })();
         (async () => {
             let { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
@@ -199,11 +202,15 @@ const Register = (props) => {
                         <View style={[styles.image, styles.placeholder]} />
                     )}
                     <TouchableOpacity
-                        onPress={takePhoto}
+                        onPress={handleProfileImagePress}
                         style={styles.imagePicker}>
                         <Ionicons style={{ color: "white" }} name="camera" />
                     </TouchableOpacity>
                 </View>
+                <TouchableOpacity style={styles.takePhotoButton} onPress={takePhoto}>
+                    <Ionicons name="camera" size={16} color="white" />
+                    <Text style={styles.takePhotoButtonText}>Take a Photo</Text>
+                </TouchableOpacity>
                 <Input
                     placeholder={"Email *"}
                     name={"email"}
@@ -344,6 +351,23 @@ const styles = StyleSheet.create({
         borderRadius: 100,
         elevation: 20
     },
+    takePhotoButton: {
+        width: '60%',
+        backgroundColor: '#FF8C42',
+        paddingVertical: 10,
+        borderRadius: 8,
+        marginTop: 10,
+        marginBottom: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    takePhotoButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 14,
+    },
     sectionTitle: {
         fontSize: 16,
         fontWeight: '600',
@@ -404,14 +428,6 @@ const styles = StyleSheet.create({
     loginLinkText: {
         color: '#FF8C42',
         fontWeight: '600',
-    },
-    cameraContainer: {
-        flex: 1,
-        flexDirection: 'row'
-    },
-    fixedRatio: {
-        flex: 1,
-        aspectRatio: 1
     },
     mapButton: {
         width: '80%',

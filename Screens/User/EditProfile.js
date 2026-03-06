@@ -84,6 +84,36 @@ const EditProfile = () => {
         }
     };
 
+    const takePhoto = async () => {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (permission.status !== 'granted') {
+            Alert.alert('Camera Permission', 'Camera access is required to take a photo.');
+            return;
+        }
+
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+        });
+
+        if (!result.canceled) {
+            setImage(result.assets[0].uri);
+        }
+    };
+
+    const handleProfileImagePress = () => {
+        Alert.alert(
+            'Profile Photo',
+            'Choose how you want to update your photo.',
+            [
+                { text: 'Take Photo', onPress: takePhoto },
+                { text: 'Choose from Gallery', onPress: pickImage },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
+    };
+
     const togglePetType = (pet) => {
         if (preferredPets.includes(pet)) {
             setPreferredPets(preferredPets.filter((p) => p !== pet));
@@ -169,7 +199,7 @@ const EditProfile = () => {
                 <Text style={styles.heading}>Edit Profile</Text>
 
                 {/* Profile Image */}
-                <TouchableOpacity onPress={pickImage} style={styles.imageContainer}>
+                <TouchableOpacity onPress={handleProfileImagePress} style={styles.imageContainer}>
                     <Image
                         source={{
                             uri: image || 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png',
@@ -179,6 +209,10 @@ const EditProfile = () => {
                     <View style={styles.cameraIcon}>
                         <Ionicons name="camera" size={20} color="white" />
                     </View>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.takePhotoButton} onPress={takePhoto}>
+                    <Ionicons name="camera" size={16} color="white" />
+                    <Text style={styles.takePhotoButtonText}>Take a Photo</Text>
                 </TouchableOpacity>
 
                 {/* Form Fields */}
@@ -310,6 +344,22 @@ const styles = StyleSheet.create({
         backgroundColor: '#FF8C42',
         borderRadius: 20,
         padding: 8,
+    },
+    takePhotoButton: {
+        backgroundColor: '#FF8C42',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        marginBottom: 16,
+    },
+    takePhotoButtonText: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '600',
     },
     fieldContainer: {
         width: '100%',

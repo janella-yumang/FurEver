@@ -28,6 +28,7 @@ const ManageUsers = () => {
     const [filter, setFilter] = useState("all"); // all, active, inactive, admin
     const [token, setToken] = useState("");
     const [toggling, setToggling] = useState(null); // userId being toggled
+    const [changingRole, setChangingRole] = useState(null); // userId whose role is being changed
 
     useFocusEffect(
         useCallback(() => {
@@ -145,6 +146,60 @@ const ManageUsers = () => {
                             });
                         }
                         setToggling(null);
+                    },
+                },
+            ]
+        );
+    };
+
+    const changeUserRole = (user) => {
+        const currentRole = user.isAdmin ? "Admin" : "Customer";
+        const newRole = user.isAdmin ? "customer" : "admin";
+        const newRoleLabel = user.isAdmin ? "Customer" : "Admin";
+
+        Alert.alert(
+            "Change User Role",
+            `Change ${user.name}'s role from ${currentRole} to ${newRoleLabel}?\n\n${
+                newRole === "admin"
+                    ? "This user will gain admin privileges and access the admin dashboard."
+                    : "This user will lose admin privileges and become a regular customer."
+            }`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: `Make ${newRoleLabel}`,
+                    style: newRole === "admin" ? "default" : "destructive",
+                    onPress: async () => {
+                        setChangingRole(user._id);
+                        try {
+                            const t = await AsyncStorage.getItem("jwt");
+                            const res = await axios.put(
+                                `${baseURL}users/${user._id}/change-role`,
+                                { role: newRole },
+                                { headers: { Authorization: `Bearer ${t}` } }
+                            );
+                            Toast.show({
+                                topOffset: 60,
+                                type: "success",
+                                text1: res.data.message,
+                            });
+
+                            const updated = users.map((u) =>
+                                u._id === user._id
+                                    ? { ...u, isAdmin: newRole === "admin", role: newRole }
+                                    : u
+                            );
+                            setUsers(updated);
+                            applyFilters(updated, search, filter);
+                        } catch (err) {
+                            Toast.show({
+                                topOffset: 60,
+                                type: "error",
+                                text1: "Failed to change role",
+                                text2: err?.response?.data?.message || err.message,
+                            });
+                        }
+                        setChangingRole(null);
                     },
                 },
             ]
@@ -285,8 +340,36 @@ const ManageUsers = () => {
                         </View>
                     </View>
 
-                    {/* Toggle Button */}
-                    {!isAdmin && (
+                    {/* Action Buttons */}
+                    <View style={styles.actionBtns}>
+                        {/* Change Role Button */}
+                        <TouchableOpacity
+                            style={[
+                                styles.toggleBtn,
+                                {
+                                    backgroundColor: item.isAdmin ? "#E8A317" : "#007BFF",
+                                },
+                            ]}
+                            onPress={() => changeUserRole(item)}
+                            disabled={changingRole === item._id}
+                        >
+                            {changingRole === item._id ? (
+                                <ActivityIndicator size="small" color="white" />
+                            ) : (
+                                <>
+                                    <Ionicons
+                                        name={item.isAdmin ? "person" : "shield-checkmark"}
+                                        size={16}
+                                        color="white"
+                                    />
+                                    <Text style={styles.toggleBtnText}>
+                                        {item.isAdmin ? "To Customer" : "To Admin"}
+                                    </Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
+
+                        {/* Toggle Active Button */}
                         <TouchableOpacity
                             style={[
                                 styles.toggleBtn,
@@ -312,7 +395,7 @@ const ManageUsers = () => {
                                 </>
                             )}
                         </TouchableOpacity>
-                    )}
+                    </View>
                 </View>
             </View>
         );
@@ -606,6 +689,11 @@ const styles = StyleSheet.create({
     },
 
     // Toggle button
+    actionBtns: {
+        flexDirection: "column",
+        gap: 6,
+        marginLeft: 8,
+    },
     toggleBtn: {
         paddingHorizontal: 10,
         paddingVertical: 8,
@@ -613,7 +701,6 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         minWidth: 70,
-        marginLeft: 8,
     },
     toggleBtnText: {
         color: "white",

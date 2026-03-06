@@ -49,6 +49,7 @@ const UserProfile = (props) => {
         { icon: 'receipt-outline', label: 'Order History', screen: 'Order History', color: '#20C997' },
         { icon: 'heart-outline', label: 'My Wishlist', screen: 'Wishlist', tab: 'Wishlist' },
         { icon: 'notifications-outline', label: 'Notifications', screen: 'Notifications', color: '#339AF0' },
+        { icon: 'scan-outline', label: 'Barcode Scanner', screen: 'Scanner', color: '#9775FA' },
         { icon: 'location-outline', label: 'Saved Addresses', screen: 'Edit Profile', color: '#5B8DEF' },
         { icon: 'paw-outline', label: 'Preferred Pets', screen: 'Edit Profile', color: '#FF6B6B' },
     ];

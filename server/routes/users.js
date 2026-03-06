@@ -13,13 +13,18 @@ let transporter = null;
 (async () => {
   try {
     if (process.env.SMTP_HOST) {
+      // Use port 587 + STARTTLS (more firewall-friendly than port 465 SSL)
       transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT) || 587,
+        secure: false,               // false = STARTTLS on 587
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
         },
         tls: { rejectUnauthorized: false },
+        connectionTimeout: 30000,    // 30 s connect timeout
+        greetingTimeout: 30000,
       });
       await transporter.verify();
       console.log('✓ User routes: Gmail SMTP ready');
@@ -34,6 +39,17 @@ let transporter = null;
     }
   } catch (err) {
     console.log('User email transporter error:', err.message);
+    // Fallback to Ethereal so the app keeps working without real email
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: { user: testAccount.user, pass: testAccount.pass },
+      });
+      console.log('↪ Fallback: using Ethereal test account', testAccount.user);
+    } catch (_) { /* no email available */ }
   }
 })();
 
@@ -333,6 +349,33 @@ router.put('/:id/toggle-active', async (req, res) => {
   } catch (err) {
     console.error('Toggle user active error:', err);
     return res.status(500).json({ message: 'Failed to update user status.' });
+  }
+});
+
+// ─── ADMIN: CHANGE USER ROLE ────────────────────────────────
+router.put('/:id/change-role', async (req, res) => {
+  try {
+    const { role } = req.body;   // 'admin' or 'customer'
+    if (!role || !['admin', 'customer'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role. Must be admin or customer.' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    user.role = role;
+    user.isAdmin = role === 'admin';
+    const saved = await user.save();
+
+    return res.status(200).json({
+      message: `User role changed to ${role} successfully.`,
+      user: saved.toJSON(),
+    });
+  } catch (err) {
+    console.error('Change user role error:', err);
+    return res.status(500).json({ message: 'Failed to change user role.' });
   }
 });
 

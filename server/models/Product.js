@@ -21,6 +21,7 @@ const productSchema = new mongoose.Schema(
     lowStockThreshold: { type: Number, default: 10 },
     image: { type: String, default: '' },
     description: { type: String, required: true },
+    barcode: { type: String, default: '' },
     variants: { type: [String], default: [] },
     expirationDate: { type: String, default: '' },
     rating: { type: Number, default: 0 },

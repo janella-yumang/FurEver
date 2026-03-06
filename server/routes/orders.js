@@ -12,13 +12,18 @@ let transporter = null;
 (async () => {
   try {
     if (process.env.SMTP_HOST) {
+      // Use port 587 + STARTTLS (more firewall-friendly than port 465 SSL)
       transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT) || 587,
+        secure: false,               // false = STARTTLS on 587
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
         },
         tls: { rejectUnauthorized: false },
+        connectionTimeout: 30000,    // 30 s connect timeout
+        greetingTimeout: 30000,
       });
       // Verify connection
       await transporter.verify();
@@ -36,6 +41,17 @@ let transporter = null;
     }
   } catch (err) {
     console.log('Email transporter not configured:', err.message);
+    // Fallback to Ethereal so the app keeps working without real email
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: { user: testAccount.user, pass: testAccount.pass },
+      });
+      console.log('↪ Fallback: using Ethereal test account', testAccount.user);
+    } catch (_) { /* no email available */ }
   }
 })();
 

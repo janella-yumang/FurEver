@@ -73,6 +73,18 @@ router.get('/admin/reviews/all', async (req, res) => {
   }
 });
 
+// GET product by barcode — must be before /:id
+router.get('/barcode/:code', async (req, res) => {
+  try {
+    const product = await Product.findOne({ barcode: req.params.code }).populate('category');
+    if (!product) return res.status(404).json({ message: 'No product matches this barcode.' });
+    return res.status(200).json(product);
+  } catch (err) {
+    console.error('Barcode lookup error:', err);
+    return res.status(500).json({ message: 'Barcode lookup failed.' });
+  }
+});
+
 // GET single product
 router.get('/:id', async (req, res) => {
   try {
@@ -90,7 +102,7 @@ router.post('/', upload.single('image'), async (req, res) => {
   try {
     const {
       name, description, price, category,
-      countInStock, petType, expirationDate, variants, lowStockThreshold
+      countInStock, petType, expirationDate, variants, lowStockThreshold, barcode
     } = req.body;
 
     if (!name || !description || !price || !category || countInStock === undefined) {
@@ -104,6 +116,7 @@ router.post('/', upload.single('image'), async (req, res) => {
       countInStock: Number(countInStock),
       lowStockThreshold: lowStockThreshold ? Number(lowStockThreshold) : 10,
       petType: petType || '',
+      barcode: barcode || '',
       expirationDate: expirationDate || '',
       variants: safeParseArray(variants),
       image: '',
@@ -132,7 +145,7 @@ router.put('/:id', upload.single('image'), async (req, res) => {
 
     const {
       name, description, price, category,
-      countInStock, petType, expirationDate, variants, lowStockThreshold
+      countInStock, petType, expirationDate, variants, lowStockThreshold, barcode
     } = req.body;
 
     if (name) product.name = name;
@@ -142,6 +155,7 @@ router.put('/:id', upload.single('image'), async (req, res) => {
     if (countInStock !== undefined) product.countInStock = Number(countInStock);
     if (lowStockThreshold !== undefined) product.lowStockThreshold = Number(lowStockThreshold);
     if (petType !== undefined) product.petType = petType;
+    if (barcode !== undefined) product.barcode = barcode;
     if (expirationDate !== undefined) product.expirationDate = expirationDate;
     if (variants) product.variants = safeParseArray(variants);
 

@@ -25,6 +25,8 @@ import * as ImagePicker from "expo-image-picker"
 import { useFocusEffect, useNavigation } from "@react-navigation/native"
 import mime from "mime";
 import { Ionicons } from "@expo/vector-icons";
+import { Modal } from "react-native";
+import BarcodeScanner from "../../Shared/BarcodeScanner";
 
 const PET_TYPES = ['Dog', 'Cat', 'Fish', 'Bird', 'Rabbit', 'Hamster', 'Reptile', 'Other'];
 const PRODUCT_CATEGORIES = [
@@ -48,6 +50,8 @@ const ProductForm = (props) => {
     const [expirationDate, setExpirationDate] = useState('');
     const [sizeVariants, setSizeVariants] = useState('');
     const [lowStockThreshold, setLowStockThreshold] = useState('10');
+    const [barcode, setBarcode] = useState('');
+    const [showScanner, setShowScanner] = useState(false);
 
     let navigation = useNavigation()
 
@@ -67,6 +71,7 @@ const ProductForm = (props) => {
             setCountInStock(editItem.countInStock?.toString() || '');
             setLowStockThreshold(editItem.lowStockThreshold?.toString() || '10');
             setPetType(editItem.petType || '');
+            setBarcode(editItem.barcode || '');
             setExpirationDate(editItem.expirationDate || '');
             setSizeVariants(editItem.variants ? editItem.variants.join(', ') : '');
         }
@@ -157,6 +162,7 @@ const ProductForm = (props) => {
         formData.append("countInStock", countInStock);
         formData.append("lowStockThreshold", lowStockThreshold || '10');
         formData.append("petType", petType);
+        formData.append("barcode", barcode);
         formData.append("expirationDate", expirationDate);
         if (sizeVariants) {
             formData.append("variants", JSON.stringify(sizeVariants.split(',').map(v => v.trim())));
@@ -385,6 +391,52 @@ const ProductForm = (props) => {
                 value={expirationDate}
                 onChangeText={(text) => setExpirationDate(text)}
             />
+
+            {/* Barcode / QR Code */}
+            <Text style={styles.sectionHeader}>Barcode / QR Code</Text>
+            <View style={styles.label}>
+                <Text style={styles.labelText}>Product Barcode</Text>
+                <Text style={styles.helperText}>
+                    Enter manually or scan with camera
+                </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                    <Input
+                        placeholder="e.g., FE-FOOD-001"
+                        name="barcode"
+                        id="barcode"
+                        value={barcode}
+                        onChangeText={(text) => setBarcode(text)}
+                    />
+                </View>
+                <TouchableOpacity
+                    onPress={() => setShowScanner(true)}
+                    style={{
+                        backgroundColor: '#FF8C42',
+                        padding: 12,
+                        borderRadius: 8,
+                        marginBottom: 15,
+                    }}
+                >
+                    <Ionicons name="scan" size={24} color="#fff" />
+                </TouchableOpacity>
+            </View>
+            {barcode ? (
+                <View style={{
+                    backgroundColor: '#FFF3E0',
+                    padding: 10,
+                    borderRadius: 8,
+                    marginBottom: 15,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                }}>
+                    <Ionicons name="barcode-outline" size={20} color="#FF8C42" />
+                    <Text style={{ color: '#333', fontWeight: '600' }}>{barcode}</Text>
+                </View>
+            ) : null}
+
             {error ? <Error message={error} /> : null}
             <View style={styles.buttonContainer}>
                 <EasyButton
@@ -397,6 +449,27 @@ const ProductForm = (props) => {
                 </EasyButton>
             </View>
         </FormContainer>
+        {/* Barcode Scanner Modal */}
+        <Modal
+            visible={showScanner}
+            animationType="slide"
+            onRequestClose={() => setShowScanner(false)}
+        >
+            <BarcodeScanner
+                title="📦 Scan Product Barcode"
+                onScan={({ data }) => {
+                    setBarcode(data);
+                    setShowScanner(false);
+                    Toast.show({
+                        topOffset: 60,
+                        type: 'success',
+                        text1: 'Barcode Scanned',
+                        text2: data,
+                    });
+                }}
+                onClose={() => setShowScanner(false)}
+            />
+        </Modal>
         </KeyboardAwareScrollView>
     )
 }

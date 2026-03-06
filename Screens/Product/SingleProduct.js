@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useCallback } from "react";
 import {
     Image, View, StyleSheet, Text, ScrollView, TouchableOpacity,
-    TextInput, Dimensions, FlatList, Alert
+    TextInput, Dimensions, FlatList, Alert, Platform
 } from "react-native";
 import { Surface } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
@@ -55,14 +55,19 @@ const SingleProduct = ({ route }) => {
         w => (w._id || w.id) === (item._id || item.id)
     );
 
-    useEffect(() => {
-        // Fetch reviews for this product
+    const getReviewId = (review) => review?._id || review?.id;
+
+    const loadReviews = useCallback(() => {
         axios.get(`${baseURL}products/${item._id || item.id}/reviews`)
             .then(res => setReviews(res.data || []))
             .catch(() => {
                 setReviews([]);
             });
-    }, []);
+    }, [item]);
+
+    useEffect(() => {
+        loadReviews();
+    }, [loadReviews]);
 
     const handleAddToCart = () => {
         dispatch(addToCart({ ...item, quantity }));
@@ -104,15 +109,7 @@ const SingleProduct = ({ route }) => {
             );
             Toast.show({ topOffset: 60, type: "success", text1: "Review submitted!", text2: "Your review is now visible." });
             setShowReviewForm(false);
-            // Add to local state
-            setReviews([...reviews, {
-                _id: Date.now().toString(),
-                user: { name: 'You', _id: context.stateUser?.user?.userId },
-                rating: userRating,
-                text: reviewText,
-                status: 'approved',
-                date: new Date().toISOString().split('T')[0]
-            }]);
+            loadReviews();
             setUserRating(0);
             setReviewText('');
         } catch (err) {
@@ -131,12 +128,14 @@ const SingleProduct = ({ route }) => {
     };
 
     const isOwnReview = (review) => {
-        return context.stateUser?.isAuthenticated && 
-            (review.user?._id === context.stateUser?.user?.userId || review.user?.name === 'You');
+        if (!context.stateUser?.isAuthenticated) return false;
+        const currentUserId = String(context.stateUser?.user?.userId || '');
+        const reviewUserId = String(review?.user?._id || review?.user || '');
+        return currentUserId.length > 0 && reviewUserId.length > 0 && currentUserId === reviewUserId;
     };
 
     const startEditReview = (review) => {
-        setEditingReviewId(review._id);
+        setEditingReviewId(getReviewId(review));
         setEditRating(review.rating);
         setEditText(review.text || '');
     };
@@ -159,7 +158,7 @@ const SingleProduct = ({ route }) => {
                 { rating: editRating, text: editText },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            setReviews(reviews.map(r => r._id === reviewId ? { ...r, rating: editRating, text: editText } : r));
+            loadReviews();
             cancelEdit();
             Toast.show({ topOffset: 60, type: 'success', text1: 'Review updated!' });
         } catch (err) {
@@ -180,7 +179,7 @@ const SingleProduct = ({ route }) => {
                             `${baseURL}products/${item._id || item.id}/reviews/${reviewId}`,
                             { headers: { Authorization: `Bearer ${token}` } }
                         );
-                        setReviews(reviews.filter(r => r._id !== reviewId));
+                        loadReviews();
                         Toast.show({ topOffset: 60, type: 'success', text1: 'Review deleted' });
                     } catch (err) {
                         Toast.show({ topOffset: 60, type: 'error', text1: 'Failed to delete review' });
@@ -269,6 +268,14 @@ const SingleProduct = ({ route }) => {
                         </View>
                     )}
 
+                    {/* Barcode */}
+                    {item.barcode ? (
+                        <View style={styles.barcodeRow}>
+                            <Ionicons name="barcode-outline" size={16} color="#888" />
+                            <Text style={styles.barcodeText}>Barcode: {item.barcode}</Text>
+                        </View>
+                    ) : null}
+
                     {/* Description */}
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Description</Text>
@@ -323,8 +330,8 @@ const SingleProduct = ({ route }) => {
 
                         {/* Review List */}
                         {reviews.map((review) => (
-                            <View key={review._id} style={styles.reviewCard}>
-                                {editingReviewId === review._id ? (
+                            <View key={getReviewId(review)} style={styles.reviewCard}>
+                                {editingReviewId === getReviewId(review) ? (
                                     /* Edit Form */
                                     <View style={styles.reviewForm}>
                                         <Text style={styles.reviewFormLabel}>Edit Your Rating:</Text>
@@ -340,7 +347,7 @@ const SingleProduct = ({ route }) => {
                                         <View style={{ flexDirection: 'row', gap: 8 }}>
                                             <TouchableOpacity
                                                 style={[styles.submitReviewButton, { flex: 1 }]}
-                                                onPress={() => submitEditReview(review._id)}
+                                                onPress={() => submitEditReview(getReviewId(review))}
                                             >
                                                 <Text style={styles.submitReviewText}>Save</Text>
                                             </TouchableOpacity>
@@ -364,7 +371,7 @@ const SingleProduct = ({ route }) => {
                                                         <TouchableOpacity onPress={() => startEditReview(review)}>
                                                             <Ionicons name="create-outline" size={16} color="#FF8C42" />
                                                         </TouchableOpacity>
-                                                        <TouchableOpacity onPress={() => deleteReview(review._id)}>
+                                                        <TouchableOpacity onPress={() => deleteReview(getReviewId(review))}>
                                                             <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
                                                         </TouchableOpacity>
                                                     </View>
@@ -514,6 +521,17 @@ const styles = StyleSheet.create({
     expirationText: {
         fontSize: 13,
         color: '#888',
+    },
+    barcodeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 12,
+    },
+    barcodeText: {
+        fontSize: 13,
+        color: '#888',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     section: {
         backgroundColor: 'white',
