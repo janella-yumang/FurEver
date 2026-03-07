@@ -10,7 +10,6 @@ import { SET_CART, SET_WISHLIST } from "../../Redux/constants"
 export const SET_CURRENT_USER = "SET_CURRENT_USER";
 
 export const loginUser = (user, dispatch, navigation) => {
-    
     fetch(`${baseURL}users/login`, {
         method: "POST",
         body: JSON.stringify(user),
@@ -42,6 +41,17 @@ export const loginUser = (user, dispatch, navigation) => {
                 return null;
             });
         }
+        if (!res.ok) {
+            return res.json().then((data) => {
+                Toast.show({
+                    topOffset: 60,
+                    type: "error",
+                    text1: data.message || "Login failed",
+                    text2: `Status: ${res.status}`,
+                });
+                return null;
+            });
+        }
         return res.json();
     })
     .then((data) => {
@@ -57,23 +67,15 @@ export const loginUser = (user, dispatch, navigation) => {
             setCartUserId(userId);
             store.dispatch(loadUserCart(userId));
             store.dispatch(loadUserWishlist(userId));
-        } else if (data && !data.token) {
-            Toast.show({
-                topOffset: 60,
-                type: "error",
-                text1: data.message || "Login failed",
-                text2: ""
-            });
         }
     })
     .catch((err) => {
         Toast.show({
             topOffset: 60,
             type: "error",
-            text1: "Please provide correct credentials",
-            text2: ""
+            text1: "Connection error",
+            text2: "Cannot reach server. Is it running?",
         });
-        console.log(err)
         logoutUser(dispatch)
     });
 };
