@@ -6,6 +6,7 @@ var { width } = Dimensions.get("window");
 
 const Banner = () => {
   const [bannerData, setBannerData] = useState([]);
+  const [failedImages, setFailedImages] = useState({});
 
   useEffect(() => {
     setBannerData([
@@ -47,13 +48,19 @@ const Banner = () => {
           dotStyle={styles.dot}
         >
           {bannerData.map((item, index) => {
+            const hasImageError = !!failedImages[index];
             return (
               <View key={index} style={styles.bannerSlide}>
-                <Image
-                  style={styles.imageBanner}
-                  resizeMode="cover"
-                  source={{ uri: item.image }}
-                />
+                {hasImageError ? (
+                  <View style={[styles.imageBanner, styles.imageFallback]} />
+                ) : (
+                  <Image
+                    style={styles.imageBanner}
+                    resizeMode="cover"
+                    source={{ uri: item.image }}
+                    onError={() => setFailedImages((prev) => ({ ...prev, [index]: true }))}
+                  />
+                )}
                 <View style={styles.overlay}>
                   <Text style={styles.discountText}>{item.discount}</Text>
                   <Text style={styles.titleText}>{item.subtitle}</Text>
@@ -87,6 +94,9 @@ const styles = StyleSheet.create({
     width: width - 20,
     borderRadius: 12,
     marginHorizontal: 10,
+  },
+  imageFallback: {
+    backgroundColor: '#FFD7BD',
   },
   overlay: {
     position: 'absolute',

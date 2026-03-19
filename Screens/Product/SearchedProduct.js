@@ -6,14 +6,27 @@ import { Surface, Text, Avatar } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 var { width } = Dimensions.get("window")
 
+const FALLBACK_IMAGE = 'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png';
+
+const resolveImageUri = (image) => {
+    if (typeof image === 'string') {
+        const trimmed = image.trim();
+        return trimmed.length ? trimmed : FALLBACK_IMAGE;
+    }
+    if (image && typeof image === 'object' && typeof image.uri === 'string' && image.uri.trim().length) {
+        return image.uri.trim();
+    }
+    return FALLBACK_IMAGE;
+};
+
 const SearchedProduct = ({ productsFiltered }) => {
     const navigation = useNavigation();
     return (
 
-        <View style={{ width: width }}>
+        <View style={{ width: width, backgroundColor: '#F8FAFC', minHeight: 180 }}>
             {productsFiltered.length > 0 ? (
 
-                <Surface >
+                <Surface style={styles.resultsSurface}>
                     <FlatList
                         data={productsFiltered}
                         renderItem={({ item }) =>
@@ -24,8 +37,7 @@ const SearchedProduct = ({ productsFiltered }) => {
                                 <Surface style={styles.resultContent}>
                                     <Avatar.Image size={24}
                                         source={{
-                                            uri: item.image ?
-                                                item.image : 'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png'
+                                            uri: resolveImageUri(item.image)
                                         }} />
                                     <Text variant="labelMedium" numberOfLines={1} ellipsizeMode="tail" style={styles.productName}>
                                         {item.name}
@@ -74,6 +86,11 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 8,
         borderRadius: 10,
+        backgroundColor: '#FFFFFF',
+    },
+    resultsSurface: {
+        backgroundColor: '#F8FAFC',
+        paddingTop: 8,
     },
     productName: {
         marginLeft: 10,

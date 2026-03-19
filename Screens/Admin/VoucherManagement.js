@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import Toast from 'react-native-toast-message';
@@ -25,14 +26,35 @@ const VoucherManagement = () => {
     const [form, setForm] = useState(EMPTY_FORM);
     const [saving, setSaving] = useState(false);
 
-    const loadVouchers = useCallback(() => {
-        AsyncStorage.getItem('jwt').then(t => {
-            setToken(t);
-            axios.get(`${baseURL}vouchers`, { headers: { Authorization: `Bearer ${t}` } })
-                .then(res => { setVouchers(res.data || []); setLoading(false); })
-                .catch(() => { setVouchers([]); setLoading(false); });
-        });
+    const getAuthToken = useCallback(async () => {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) return secureToken;
+        const asyncToken = await AsyncStorage.getItem('jwt');
+        return asyncToken || '';
     }, []);
+
+    const loadVouchers = useCallback(() => {
+        setLoading(true);
+        getAuthToken()
+            .then((t) => {
+                setToken(t);
+                return axios.get(`${baseURL}vouchers`, { headers: { Authorization: `Bearer ${t}` } });
+            })
+            .then((res) => {
+                setVouchers(Array.isArray(res.data) ? res.data : []);
+                setLoading(false);
+            })
+            .catch((err) => {
+                setVouchers([]);
+                setLoading(false);
+                Toast.show({
+                    topOffset: 60,
+                    type: 'error',
+                    text1: err?.response?.data?.message || 'Failed to load vouchers.',
+                    text2: 'Please log in with an online admin account.',
+                });
+            });
+    }, [getAuthToken]);
 
     useFocusEffect(useCallback(() => { loadVouchers(); }, [loadVouchers]));
 

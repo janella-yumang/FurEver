@@ -17,6 +17,26 @@ import Toast from 'react-native-toast-message'
 import { Ionicons } from '@expo/vector-icons'
 import { useNavigation } from '@react-navigation/native'
 
+const FALLBACK_IMAGE = 'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png';
+
+const resolveImageUri = (image) => {
+    if (typeof image === 'string') {
+        const trimmed = image.trim();
+        return trimmed.length ? trimmed : FALLBACK_IMAGE;
+    }
+
+    if (image && typeof image === 'object') {
+        if (typeof image.uri === 'string' && image.uri.trim().length) {
+            return image.uri.trim();
+        }
+        if (Array.isArray(image) && typeof image[0] === 'string' && image[0].trim().length) {
+            return image[0].trim();
+        }
+    }
+
+    return FALLBACK_IMAGE;
+};
+
 const ProductCard = (props) => {
     const navigation = useNavigation();
     const { name, price, image, countInStock, petType, rating } = props;
@@ -77,8 +97,7 @@ const ProductCard = (props) => {
                 style={styles.image}
                 resizeMode="contain"
                 source={{
-                    uri: image ?
-                        image : 'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png'
+                    uri: resolveImageUri(image)
                 }}
             />
             

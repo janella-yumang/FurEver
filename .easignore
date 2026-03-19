@@ -2,3 +2,7 @@ server/
 server/node_modules/
 *.log
 .env
+.idea/
+.gradle-local/
+build/
+android/.gradle/

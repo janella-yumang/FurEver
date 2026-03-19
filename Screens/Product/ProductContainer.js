@@ -190,9 +190,20 @@ const ProductContainer = () => {
             <View style={styles.searchRow}>
                 <Searchbar
                     placeholder="Search by name, brand, pet type..."
-                    onChangeText={(text) => [searchProduct(text), setKeyword(text), setFocus(true)]}
+                    onChangeText={(text) => {
+                        searchProduct(text);
+                        setKeyword(text);
+                        setFocus(text.trim().length > 0);
+                    }}
                     value={keyword}
-                    onClearIconPress={onBlur}
+                    onClearIconPress={() => {
+                        setKeyword('');
+                        searchProduct('');
+                        onBlur();
+                    }}
+                    placeholderTextColor="#8A9099"
+                    iconColor="#6B7280"
+                    inputStyle={styles.searchInput}
                     style={styles.searchBar}
                 />
                 <TouchableOpacity
@@ -423,11 +434,21 @@ const styles = StyleSheet.create({
     searchRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingTop: 6,
+        paddingBottom: 6,
         paddingRight: 8,
         backgroundColor: 'white',
     },
     searchBar: {
         flex: 1,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        elevation: 0,
+    },
+    searchInput: {
+        color: '#1F2937',
     },
     filterButton: {
         padding: 8,

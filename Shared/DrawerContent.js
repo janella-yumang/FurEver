@@ -3,6 +3,17 @@ import React, { useState, useContext } from 'react';
 import { Drawer } from 'react-native-paper';
 import AuthGlobal from '../Context/Store/AuthGlobal';
 
+const drawerTheme = {
+  colors: {
+    onSurface: '#1E1E1E',
+    onSurfaceVariant: '#1E1E1E',
+    secondaryContainer: '#FFE7D5',
+  },
+};
+
+const drawerItemLabelStyle = { color: '#1E1E1E', fontSize: 18, fontWeight: '600' };
+const drawerItemStyle = { borderRadius: 10, marginHorizontal: 8 };
+
 const DrawerContent = () => {
   const [active, setActive] = useState('');
   const navigation = useNavigation();
@@ -10,7 +21,7 @@ const DrawerContent = () => {
   const isAdmin = context?.stateUser?.user?.isAdmin === true;
 
   return (
-    <Drawer.Section title="Menu">
+    <Drawer.Section title="Menu" theme={drawerTheme} titleStyle={{ color: '#6B7280', fontWeight: '600' }}>
       <Drawer.Item
         label="My Profile"
         active={active === 'Profile'}
@@ -19,6 +30,9 @@ const DrawerContent = () => {
           navigation.navigate('User', { screen: 'User Profile' });
         }}
         icon="account"
+        theme={drawerTheme}
+        labelStyle={drawerItemLabelStyle}
+        style={drawerItemStyle}
       />
       <Drawer.Item
         label="My Orders"
@@ -28,6 +42,9 @@ const DrawerContent = () => {
           navigation.navigate('User', { screen: 'Order History' });
         }}
         icon="cart-variant"
+        theme={drawerTheme}
+        labelStyle={drawerItemLabelStyle}
+        style={drawerItemStyle}
       />
       <Drawer.Item
         label="Wishlist"
@@ -37,6 +54,9 @@ const DrawerContent = () => {
           navigation.navigate('Wishlist');
         }}
         icon="heart"
+        theme={drawerTheme}
+        labelStyle={drawerItemLabelStyle}
+        style={drawerItemStyle}
       />
 
       {isAdmin && (
@@ -47,7 +67,10 @@ const DrawerContent = () => {
             setActive('Admin');
             navigation.navigate('Admin');
           }}
-          icon="shield-admin"
+          icon="shield-account"
+          theme={drawerTheme}
+          labelStyle={drawerItemLabelStyle}
+          style={drawerItemStyle}
         />
       )}
 
@@ -59,6 +82,9 @@ const DrawerContent = () => {
           navigation.navigate('User', { screen: 'Notifications' });
         }}
         icon="bell"
+        theme={drawerTheme}
+        labelStyle={drawerItemLabelStyle}
+        style={drawerItemStyle}
       />
     </Drawer.Section>
   );
