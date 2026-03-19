@@ -9,6 +9,8 @@ import Categories from "../Screens/Admin/Categories"
 import Reviews from "../Screens/Admin/Reviews"
 import ReportsAnalytics from "../Screens/Admin/ReportsAnalytics"
 import ManageUsers from "../Screens/Admin/ManageUsers"
+import PromotionBroadcast from "../Screens/Admin/PromotionBroadcast"
+import VoucherManagement from "../Screens/Admin/VoucherManagement"
 
 const Stack = createStackNavigator();
 
@@ -76,6 +78,20 @@ const AdminNavigator = () => {
                 component={ManageUsers}
                 options={{
                     title: "Manage Users"
+                }}
+            />
+            <Stack.Screen 
+                name="PromotionBroadcast" 
+                component={PromotionBroadcast}
+                options={{
+                    title: "Promotion Broadcast"
+                }}
+            />
+            <Stack.Screen 
+                name="VoucherManagement" 
+                component={VoucherManagement}
+                options={{
+                    title: "Voucher Management"
                 }}
             />
         </Stack.Navigator>

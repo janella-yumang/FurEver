@@ -8,11 +8,22 @@ const User = require('../models/User');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
+
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠ JWT_SECRET is not set. Using development fallback secret. Set JWT_SECRET in .env for stable auth.');
+}
+
 // ─── Email transporter ──────────────────────────────────────
 let transporter = null;
+let emailMode = 'disabled';
 (async () => {
   try {
-    if (process.env.SMTP_HOST) {
+    const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+    if (smtpConfigured) {
       transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT) || 587,
@@ -23,6 +34,7 @@ let transporter = null;
         greetingTimeout: 30000,
       });
       await transporter.verify();
+      emailMode = 'smtp';
       console.log('✓ User routes: Gmail SMTP ready');
     } else {
       const testAccount = await nodemailer.createTestAccount();
@@ -30,6 +42,8 @@ let transporter = null;
         host: 'smtp.ethereal.email', port: 587, secure: false,
         auth: { user: testAccount.user, pass: testAccount.pass },
       });
+      emailMode = 'ethereal';
+      console.warn('⚠ SMTP not configured. Verification emails are sent to Ethereal test inbox only.');
       console.log('✓ User routes: Ethereal test email ready');
     }
   } catch (err) {
@@ -39,6 +53,7 @@ let transporter = null;
         host: 'smtp.ethereal.email', port: 587, secure: false,
         auth: { user: testAccount.user, pass: testAccount.pass },
       });
+      emailMode = 'ethereal';
       console.warn('⚠ User routes: SMTP fallback to Ethereal:', err.message);
     } catch (_) {}
   }
@@ -47,10 +62,12 @@ let transporter = null;
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const sendVerificationEmail = async (email, code) => {
-  if (!transporter) return;
+  if (!transporter) {
+    return { delivered: false, mode: 'disabled' };
+  }
   const fromEmail = process.env.SMTP_USER || 'noreply@furever.com';
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `"FurEver Pet Shop" <${fromEmail}>`,
       to: email,
       subject: `🐾 Your Verification Code: ${code}`,
@@ -63,8 +80,14 @@ const sendVerificationEmail = async (email, code) => {
         <p style="color:#666;font-size:14px">This code expires in <strong>10 minutes</strong>.</p>
       </div>`,
     });
+    const previewUrl = nodemailer.getTestMessageUrl(info) || null;
     console.log('Verification email sent to:', email);
+    if (previewUrl) {
+      console.log('Ethereal preview URL:', previewUrl);
+    }
+    return { delivered: true, mode: emailMode, previewUrl };
   } catch (err) { console.error('Verification email error:', err.message); }
+  return { delivered: false, mode: emailMode, error: 'send-failed' };
 };
 
 const safeParseArray = (value) => {
@@ -77,10 +100,12 @@ const safeParseArray = (value) => {
 router.post('/register', upload.single('image'), async (req, res) => {
   try {
     const { name, email, password, phone, isAdmin, role, shippingAddress, preferredPets } = req.body;
-    if (!name || !email || !password || !phone) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!name || !normalizedEmail || !password || !phone) {
       return res.status(400).json({ message: 'Missing required fields.' });
     }
-    const existing = User.findOne({ email: email.toLowerCase() });
+    const existing = User.findOne({ email: normalizedEmail });
     if (existing) return res.status(409).json({ message: 'Email already registered.' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -88,19 +113,38 @@ router.post('/register', upload.single('image'), async (req, res) => {
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     const user = User.create({
-      name, email: email.toLowerCase(), password: hashedPassword, phone,
+      name, email: normalizedEmail, password: hashedPassword, phone,
       isAdmin: String(isAdmin) === 'true', role: role || 'customer',
       shippingAddress: shippingAddress || '', preferredPets: safeParseArray(preferredPets),
       image: '', emailVerified: false, verificationCode, verificationExpires,
     });
 
-    sendVerificationEmail(user.email, verificationCode);
+    const emailResult = await sendVerificationEmail(user.email, verificationCode);
 
-    return res.status(201).json({
+    const response = {
       message: 'Verification code sent to your email',
       user: User.toJSON(user),
       requiresVerification: true,
-    });
+    };
+
+    if (!IS_PRODUCTION) {
+      response.emailDebug = {
+        mode: emailResult?.mode || 'disabled',
+      };
+      if (emailResult?.previewUrl) {
+        response.emailDebug.previewUrl = emailResult.previewUrl;
+      }
+      if (emailResult?.mode !== 'smtp' || !emailResult?.delivered) {
+        response.emailDebug.fallbackCode = verificationCode;
+      }
+      if (!emailResult?.delivered) {
+        response.message = 'Verification code generated. Email delivery unavailable in development mode.';
+      } else if (emailResult?.mode !== 'smtp') {
+        response.message = 'Verification code generated. Use Development helper if you cannot access Ethereal email preview.';
+      }
+    }
+
+    return res.status(201).json(response);
   } catch (err) {
     console.error('Register error:', err);
     return res.status(500).json({ message: 'Registration failed.' });
@@ -111,9 +155,10 @@ router.post('/register', upload.single('image'), async (req, res) => {
 router.post('/verify-email', async (req, res) => {
   try {
     const { email, code } = req.body;
-    if (!email || !code) return res.status(400).json({ message: 'Email and verification code are required.' });
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !code) return res.status(400).json({ message: 'Email and verification code are required.' });
 
-    const user = User.findOne({ email: email.toLowerCase() });
+    const user = User.findOne({ email: normalizedEmail });
     if (!user) return res.status(404).json({ message: 'User not found.' });
     if (user.emailVerified) return res.status(200).json({ message: 'Email already verified.' });
     if (user.verificationCode !== code) return res.status(400).json({ message: 'Invalid verification code.' });
@@ -133,8 +178,9 @@ router.post('/verify-email', async (req, res) => {
 router.post('/resend-code', async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is required.' });
-    const user = User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return res.status(400).json({ message: 'Email is required.' });
+    const user = User.findOne({ email: normalizedEmail });
     if (!user) return res.status(404).json({ message: 'User not found.' });
     if (user.emailVerified) return res.status(200).json({ message: 'Email already verified.' });
 
@@ -143,8 +189,27 @@ router.post('/resend-code', async (req, res) => {
       verificationCode: newCode,
       verificationExpires: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     });
-    sendVerificationEmail(user.email, newCode);
-    return res.status(200).json({ message: 'New verification code sent to your email.' });
+    const emailResult = await sendVerificationEmail(user.email, newCode);
+
+    const response = { message: 'New verification code sent to your email.' };
+    if (!IS_PRODUCTION) {
+      response.emailDebug = {
+        mode: emailResult?.mode || 'disabled',
+      };
+      if (emailResult?.previewUrl) {
+        response.emailDebug.previewUrl = emailResult.previewUrl;
+      }
+      if (emailResult?.mode !== 'smtp' || !emailResult?.delivered) {
+        response.emailDebug.fallbackCode = newCode;
+      }
+      if (!emailResult?.delivered) {
+        response.message = 'New verification code generated. Email delivery unavailable in development mode.';
+      } else if (emailResult?.mode !== 'smtp') {
+        response.message = 'New verification code generated. Use Development helper if you cannot access Ethereal email preview.';
+      }
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('Resend code error:', err);
     return res.status(500).json({ message: 'Failed to resend code.' });
@@ -155,9 +220,10 @@ router.post('/resend-code', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'Email and password are required.' });
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !password) return res.status(400).json({ message: 'Email and password are required.' });
 
-    const user = User.findOne({ email: email.toLowerCase() });
+    const user = User.findOne({ email: normalizedEmail });
     if (!user) return res.status(401).json({ message: 'Invalid credentials.' });
 
     const match = await bcrypt.compare(password, user.password);
@@ -170,8 +236,8 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user._id, isAdmin: user.isAdmin, email: user.email, name: user.name, role: user.role },
-      process.env.JWT_SECRET, { expiresIn: '7d' }
+      { userId: String(user.id || user._id), isAdmin: user.isAdmin, email: user.email, name: user.name, role: user.role },
+      JWT_SECRET, { expiresIn: '7d' }
     );
     return res.status(200).json({ token, user: User.toJSON(user) });
   } catch (err) {
@@ -184,13 +250,14 @@ router.post('/login', async (req, res) => {
 router.post('/google-login', async (req, res) => {
   try {
     const { googleId, email, name, profilePhoto } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is required for Google login.' });
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return res.status(400).json({ message: 'Email is required for Google login.' });
 
-    let user = User.findOne({ email: email.toLowerCase() });
+    let user = User.findOne({ email: normalizedEmail });
     if (!user) {
       const hashedPassword = await bcrypt.hash(Math.random().toString(36), 10);
       user = User.create({
-        email: email.toLowerCase(), name: name || 'Google User',
+        email: normalizedEmail, name: name || 'Google User',
         password: hashedPassword, phone: '', image: profilePhoto || '',
         emailVerified: true, isAdmin: false, role: 'customer', googleId: googleId || null,
       });
@@ -204,8 +271,8 @@ router.post('/google-login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user._id, isAdmin: user.isAdmin, email: user.email, name: user.name, role: user.role },
-      process.env.JWT_SECRET, { expiresIn: '7d' }
+      { userId: String(user.id || user._id), isAdmin: user.isAdmin, email: user.email, name: user.name, role: user.role },
+      JWT_SECRET, { expiresIn: '7d' }
     );
     return res.status(200).json({ token, user: User.toJSON(user) });
   } catch (err) {
@@ -299,7 +366,7 @@ router.put('/:id/change-role', (req, res) => {
 // ─── DEV: MANUAL VERIFY ────────────────────────────────────
 router.post('/dev/verify-manual/:email', (req, res) => {
   try {
-    const user = User.findOne({ email: req.params.email.toLowerCase() });
+    const user = User.findOne({ email: normalizeEmail(req.params.email) });
     if (!user) return res.status(404).json({ message: 'User not found.' });
     const updated = User.update(user.id, { emailVerified: true, verificationCode: null, verificationExpires: null });
     return res.status(200).json({ message: 'Email manually verified (development only).', user: User.toJSON(updated) });

@@ -28,11 +28,15 @@ const Order = {
   create(data, orderItems) {
     const now = nowISO();
     const info = db.prepare(`
-      INSERT INTO orders (shippingAddress1, shippingAddress2, phone, status, totalPrice, paymentMethod, userId, dateOrdered, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (shippingAddress1, shippingAddress2, phone, status, totalPrice, voucherDiscount, voucherId, voucherCode, paymentMethod, userId, dateOrdered, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       data.shippingAddress1 || '', data.shippingAddress2 || '', data.phone || '',
-      data.status || 'Pending', data.totalPrice || 0, data.paymentMethod || '',
+      data.status || 'Pending', data.totalPrice || 0,
+      data.voucherDiscount || 0,
+      data.voucherId || null,
+      data.voucherCode || '',
+      data.paymentMethod || '',
       data.userId || data.user || null, data.dateOrdered || now, now, now
     );
     const orderId = info.lastInsertRowid;
@@ -50,6 +54,9 @@ const Order = {
     const fields = []; const params = [];
     if (data.status !== undefined) { fields.push('status = ?'); params.push(data.status); }
     if (data.totalPrice !== undefined) { fields.push('totalPrice = ?'); params.push(data.totalPrice); }
+    if (data.voucherDiscount !== undefined) { fields.push('voucherDiscount = ?'); params.push(data.voucherDiscount); }
+    if (data.voucherId !== undefined) { fields.push('voucherId = ?'); params.push(data.voucherId); }
+    if (data.voucherCode !== undefined) { fields.push('voucherCode = ?'); params.push(data.voucherCode); }
     if (data.shippingAddress1 !== undefined) { fields.push('shippingAddress1 = ?'); params.push(data.shippingAddress1); }
     if (data.shippingAddress2 !== undefined) { fields.push('shippingAddress2 = ?'); params.push(data.shippingAddress2); }
     if (data.phone !== undefined) { fields.push('phone = ?'); params.push(data.phone); }
@@ -161,6 +168,9 @@ const Order = {
       _id: String(row.id),
       user: row.userId ? { _id: String(row.userId), name: row.userName, email: row.userEmail } : null,
       orderItems: Order.getOrderItems(row.id),
+      voucherId: row.voucherId ? String(row.voucherId) : null,
+      voucherDiscount: parseFloat(row.voucherDiscount) || 0,
+      voucherCode: row.voucherCode || '',
       userName: undefined, userEmail: undefined,
     };
     return order;

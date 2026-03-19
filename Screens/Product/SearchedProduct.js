@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet, Dimensions, } from 'react-native'
 
 import { FlatList, TouchableOpacity } from 'react-native';
-import { Surface, Text, Avatar, Divider } from 'react-native-paper';
+import { Surface, Text, Avatar } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 var { width } = Dimensions.get("window")
 
@@ -18,20 +18,17 @@ const SearchedProduct = ({ productsFiltered }) => {
                         data={productsFiltered}
                         renderItem={({ item }) =>
                             <TouchableOpacity
-                                style={{ width: '50%' }}
+                                style={styles.resultItem}
                                 onPress={() => navigation.navigate("Product Detail", { item })}
                             >
-                                <Surface width="90%">
+                                <Surface style={styles.resultContent}>
                                     <Avatar.Image size={24}
                                         source={{
                                             uri: item.image ?
                                                 item.image : 'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png'
                                         }} />
-                                    <Text variant="labelMedium">{item.name}</Text>
-                                    <Text variant="labelMedium">{item.description}</Text>
-                                    <Divider />
-                                    <Text variant="labelMedium">
-                                        {item.price}
+                                    <Text variant="labelMedium" numberOfLines={1} ellipsizeMode="tail" style={styles.productName}>
+                                        {item.name}
                                     </Text>
                                 </Surface>
 
@@ -65,6 +62,22 @@ const styles = StyleSheet.create({
         alignItems: "flex-start",
         flexWrap: "wrap",
         backgroundColor: "gainsboro",
+    },
+    resultItem: {
+        width: '100%',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    resultContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 10,
+    },
+    productName: {
+        marginLeft: 10,
+        flex: 1,
     },
 })
 

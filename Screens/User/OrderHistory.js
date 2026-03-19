@@ -9,6 +9,8 @@ import baseURL from '../../assets/common/baseurl';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchUserOrders } from '../../Redux/Actions/orderActions';
 
 var { width } = Dimensions.get('window');
 
@@ -25,7 +27,8 @@ const TRACKING_STEPS = ['Pending', 'Processing', 'Shipped', 'Delivered'];
 const OrderHistory = () => {
     const context = useContext(AuthGlobal);
     const navigation = useNavigation();
-    const [orders, setOrders] = useState([]);
+    const dispatch = useDispatch();
+    const orders = useSelector((state) => state.orders?.data || []);
     const [loading, setLoading] = useState(true);
 
     const fetchOrders = useCallback(() => {
@@ -42,39 +45,16 @@ const OrderHistory = () => {
 
         AsyncStorage.getItem('jwt')
             .then((token) => {
-                axios
-                    .get(`${baseURL}orders/user/${userId}`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    })
-                    .then((res) => {
-                        setOrders(res.data);
+                dispatch(fetchUserOrders(userId, token))
+                    .finally(() => {
                         setLoading(false);
-                    })
-                    .catch((err) => {
-                        // Fallback: fetch all and filter client-side
-                        axios
-                            .get(`${baseURL}orders`, {
-                                headers: { Authorization: `Bearer ${token}` },
-                            })
-                            .then((res2) => {
-                                const userOrders = res2.data.filter(
-                                    (order) =>
-                                        order.user === userId ||
-                                        (order.user && order.user._id === userId)
-                                );
-                                setOrders(userOrders);
-                                setLoading(false);
-                            })
-                            .catch(() => {
-                                setLoading(false);
-                            });
                     });
             })
             .catch((err) => {
                 console.log(err);
                 setLoading(false);
             });
-    }, [context.stateUser.isAuthenticated]);
+    }, [context.stateUser.isAuthenticated, context.stateUser.user, dispatch]);
 
     useFocusEffect(fetchOrders);
 

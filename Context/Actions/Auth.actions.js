@@ -1,18 +1,25 @@
 // import "core-js/stable/atob";
 import { jwtDecode } from "jwt-decode"
-import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as SecureStore from 'expo-secure-store'
 import Toast from "react-native-toast-message"
 import baseURL from "../../assets/common/baseurl"
 import store from "../../Redux/store"
 import { loadUserCart, loadUserWishlist, setCartUserId } from "../../Redux/Actions/cartActions"
 import { SET_CART, SET_WISHLIST } from "../../Redux/constants"
+import { registerPushTokenForUser } from "../../assets/common/pushNotifications"
 
 export const SET_CURRENT_USER = "SET_CURRENT_USER";
 
 export const loginUser = (user, dispatch, navigation) => {
+    const normalizedUser = {
+        ...user,
+        email: String(user?.email || '').trim().toLowerCase(),
+        password: String(user?.password || ''),
+    };
+
     fetch(`${baseURL}users/login`, {
         method: "POST",
-        body: JSON.stringify(user),
+        body: JSON.stringify(normalizedUser),
         headers: {
             Accept: "application/json",
             "Content-Type": "application/json",
@@ -29,7 +36,7 @@ export const loginUser = (user, dispatch, navigation) => {
                         text2: "Please verify your email to continue.",
                     });
                     if (navigation) {
-                        navigation.navigate("Verify Email", { email: data.email || user.email });
+                        navigation.navigate("Verify Email", { email: data.email || normalizedUser.email });
                     }
                 } else {
                     Toast.show({
@@ -54,13 +61,16 @@ export const loginUser = (user, dispatch, navigation) => {
         }
         return res.json();
     })
-    .then((data) => {
+    .then(async (data) => {
         if (data && data.token) {
             const token = data.token;
-            AsyncStorage.setItem("jwt", token)
+            await SecureStore.setItemAsync("jwt", token);
             const decoded = jwtDecode(token)
-            console.log("token",token)
-            dispatch(setCurrentUser(decoded, data.user || user))
+            dispatch(setCurrentUser(decoded, data.user || normalizedUser))
+
+            registerPushTokenForUser(decoded.userId, token).catch((error) => {
+                console.log('Push token registration failed:', error?.message || error);
+            });
 
             // Load persisted cart & wishlist for this user
             const userId = decoded.userId;
@@ -93,13 +103,25 @@ export const getUserProfile = (id) => {
     .then((data) => console.log(data));
 }
 
-export const logoutUser = (dispatch) => {
-    AsyncStorage.removeItem("jwt");
-    // Clear Redux cart/wishlist state but keep AsyncStorage data for next login
+export const logoutUser = async (dispatch) => {
+    try {
+        const token = await SecureStore.getItemAsync("jwt");
+        if (token) {
+            const decoded = jwtDecode(token);
+            if (decoded?.userId) {
+                // Clear push token on server so stale tokens don't accumulate
+                fetch(`${baseURL}notifications/user/${decoded.userId}/push-token`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` },
+                }).catch(() => {});
+            }
+        }
+    } catch (_) {}
+    await SecureStore.deleteItemAsync("jwt").catch(() => {});
     setCartUserId(null);
     store.dispatch({ type: SET_CART, payload: [] });
     store.dispatch({ type: SET_WISHLIST, payload: [] });
-    dispatch(setCurrentUser({}))
+    dispatch(setCurrentUser({}));
 }
 
 export const setCurrentUser = (decoded, user) => {

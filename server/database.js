@@ -27,6 +27,7 @@ db.exec(`
     verificationCode TEXT,
     verificationExpires TEXT,
     googleId TEXT,
+    pushToken TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now'))
   );
@@ -78,6 +79,9 @@ db.exec(`
     phone TEXT DEFAULT '',
     status TEXT DEFAULT 'Pending',
     totalPrice REAL DEFAULT 0,
+    voucherDiscount REAL DEFAULT 0,
+    voucherId INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    voucherCode TEXT DEFAULT '',
     paymentMethod TEXT DEFAULT '',
     userId INTEGER REFERENCES users(id) ON DELETE SET NULL,
     dateOrdered TEXT DEFAULT (datetime('now')),
@@ -103,9 +107,42 @@ db.exec(`
     message TEXT NOT NULL,
     orderId INTEGER REFERENCES orders(id) ON DELETE SET NULL,
     productId INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    imageUrl TEXT DEFAULT '',
+    voucherId INTEGER REFERENCES vouchers(id) ON DELETE SET NULL,
+    expiresAt TEXT,
     read INTEGER DEFAULT 0,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS vouchers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    message TEXT DEFAULT '',
+    imageUrl TEXT DEFAULT '',
+    promoCode TEXT UNIQUE NOT NULL,
+    discountType TEXT NOT NULL DEFAULT 'percent',
+    discountValue REAL NOT NULL DEFAULT 0,
+    maxDiscount REAL DEFAULT 0,
+    minOrderAmount REAL DEFAULT 0,
+    startsAt TEXT,
+    expiresAt TEXT,
+    isActive INTEGER DEFAULT 1,
+    maxClaims INTEGER DEFAULT 0,
+    claimedCount INTEGER DEFAULT 0,
+    createdByUserId INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS voucher_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucherId INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    claimedAt TEXT DEFAULT (datetime('now')),
+    usedAt TEXT,
+    orderId INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    UNIQUE(voucherId, userId)
   );
 `);
 
@@ -244,6 +281,63 @@ function repairDataConsistency() {
 }
 
 repairDataConsistency();
+
+// Ensure newly introduced columns exist for older local DB files.
+function migrateSchemaIfNeeded() {
+  try {
+    const userColumns = db.prepare("PRAGMA table_info(users)").all();
+    const hasPushToken = userColumns.some((col) => col.name === 'pushToken');
+    if (!hasPushToken) {
+      db.exec('ALTER TABLE users ADD COLUMN pushToken TEXT');
+      console.log('✓ Migration applied: users.pushToken added');
+    }
+
+    const orderColumns = db.prepare("PRAGMA table_info(orders)").all();
+    if (!orderColumns.some((col) => col.name === 'voucherDiscount')) {
+      db.exec('ALTER TABLE orders ADD COLUMN voucherDiscount REAL DEFAULT 0');
+      console.log('✓ Migration applied: orders.voucherDiscount added');
+    }
+    if (!orderColumns.some((col) => col.name === 'voucherId')) {
+      db.exec('ALTER TABLE orders ADD COLUMN voucherId INTEGER');
+      console.log('✓ Migration applied: orders.voucherId added');
+    }
+    if (!orderColumns.some((col) => col.name === 'voucherCode')) {
+      db.exec("ALTER TABLE orders ADD COLUMN voucherCode TEXT DEFAULT ''");
+      console.log('✓ Migration applied: orders.voucherCode added');
+    }
+
+    const notificationColumns = db.prepare("PRAGMA table_info(notifications)").all();
+    if (!notificationColumns.some((col) => col.name === 'imageUrl')) {
+      db.exec("ALTER TABLE notifications ADD COLUMN imageUrl TEXT DEFAULT ''");
+      console.log('✓ Migration applied: notifications.imageUrl added');
+    }
+    if (!notificationColumns.some((col) => col.name === 'voucherId')) {
+      db.exec('ALTER TABLE notifications ADD COLUMN voucherId INTEGER');
+      console.log('✓ Migration applied: notifications.voucherId added');
+    }
+    if (!notificationColumns.some((col) => col.name === 'expiresAt')) {
+      db.exec('ALTER TABLE notifications ADD COLUMN expiresAt TEXT');
+      console.log('✓ Migration applied: notifications.expiresAt added');
+    }
+
+    // ─── Review photos ──────────────────────────────────────
+    const reviewColumns = db.prepare("PRAGMA table_info(reviews)").all();
+    if (!reviewColumns.some((col) => col.name === 'image')) {
+      db.exec("ALTER TABLE reviews ADD COLUMN image TEXT DEFAULT ''");
+      console.log('✓ Migration applied: reviews.image added');
+    }
+
+    // ─── Loyalty points ─────────────────────────────────────
+    if (!userColumns.some((col) => col.name === 'loyaltyPoints')) {
+      db.exec('ALTER TABLE users ADD COLUMN loyaltyPoints INTEGER DEFAULT 0');
+      console.log('✓ Migration applied: users.loyaltyPoints added');
+    }
+  } catch (error) {
+    console.error('✗ Schema migration failed:', error.message);
+  }
+}
+
+migrateSchemaIfNeeded();
 
 // ─── Helper: add _id alias to match Mongoose-style responses ─
 function addId(row) {

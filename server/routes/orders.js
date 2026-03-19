@@ -1,12 +1,15 @@
 const express = require('express');
+const https = require('https');
 const nodemailer = require('nodemailer');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Notification = require('../models/Notification');
+const Voucher = require('../models/Voucher');
 const { db } = require('../database');
 
 const router = express.Router();
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 // ─── Email transporter ──────────────────────────────────────
 let transporter = null;
@@ -74,6 +77,83 @@ const sendOrderStatusEmail = async (user, order, status) => {
   } catch (err) { console.error('Order status email error:', err.message); }
 };
 
+function isValidExpoPushToken(token = '') {
+  return /^ExponentPushToken\[[\w-]+\]$/.test(token);
+}
+
+function postJson(url, payload) {
+  if (typeof fetch === 'function') {
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }).then(async (res) => {
+      let body = null;
+      try { body = await res.json(); } catch (_) {}
+      return { ok: res.ok, body };
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        let body = null;
+        try { body = JSON.parse(data); } catch (_) {}
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body });
+      });
+    });
+
+    req.on('error', reject);
+    req.write(JSON.stringify(payload));
+    req.end();
+  });
+}
+
+async function sendExpoPushMessages(messages = []) {
+  if (!messages.length) return { sent: 0, failed: 0, staleTokens: new Set() };
+
+  let sent = 0;
+  let failed = 0;
+  const staleTokens = new Set();
+
+  for (const message of messages) {
+    try {
+      const response = await postJson(EXPO_PUSH_URL, message);
+
+      if (response.ok) {
+        sent += 1;
+        const receipts = response.body?.data;
+        if (Array.isArray(receipts)) {
+          for (const receipt of receipts) {
+            if (receipt?.status === 'error' && receipt?.details?.error === 'DeviceNotRegistered') {
+              if (message.to) staleTokens.add(message.to);
+            }
+          }
+        }
+      } else {
+        failed += 1;
+      }
+    } catch (_) {
+      failed += 1;
+    }
+  }
+
+  return { sent, failed, staleTokens };
+}
+
 // ─── GET ALL ORDERS ─────────────────────────────────────────
 router.get('/', (req, res) => {
   try {
@@ -111,19 +191,25 @@ router.get('/:id', (req, res) => {
 // ─── CREATE ORDER ───────────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const { orderItems, shippingAddress1, shippingAddress2, phone, status, totalPrice, paymentMethod, user } = req.body;
+    const {
+      orderItems,
+      shippingAddress1,
+      shippingAddress2,
+      phone,
+      status,
+      paymentMethod,
+      user,
+      voucherId,
+      voucherCode,
+    } = req.body;
     console.log('\n📦 CREATE ORDER REQUEST');
     console.log('  Items:', orderItems?.length || 0);
-    console.log('  Total Price received:', totalPrice, '(type: ' + typeof totalPrice + ')');
     console.log('  Payment Method:', paymentMethod);
     
     if (!orderItems || !orderItems.length) {
       return res.status(400).json({ message: 'No order items.' });
     }
 
-    const parsedTotal = parseFloat(totalPrice) || 0;
-    console.log('  Parsed total for DB:', parsedTotal);
-    
     const normalizedItems = orderItems.map(item => {
       const resolvedProductId = parseInt(item.product || item.productId || item._id || item.id);
       return {
@@ -135,17 +221,70 @@ router.post('/', async (req, res) => {
       };
     });
 
+    const subtotal = normalizedItems.reduce((sum, item) => sum + ((parseFloat(item.price) || 0) * (parseInt(item.quantity, 10) || 1)), 0);
+    let appliedVoucher = null;
+    let voucherDiscount = 0;
+    const userId = parseInt(user, 10);
+
+    if (voucherId || voucherCode) {
+      appliedVoucher = voucherId
+        ? Voucher.findById(parseInt(voucherId, 10))
+        : Voucher.findByCode(voucherCode);
+
+      if (!appliedVoucher || !appliedVoucher.isActive) {
+        return res.status(400).json({ message: 'Selected voucher is invalid or inactive.' });
+      }
+
+      const now = new Date();
+      if (appliedVoucher.startsAt && new Date(appliedVoucher.startsAt) > now) {
+        return res.status(400).json({ message: 'Selected voucher is not active yet.' });
+      }
+      if (appliedVoucher.expiresAt && new Date(appliedVoucher.expiresAt) <= now) {
+        return res.status(400).json({ message: 'Selected voucher has already expired.' });
+      }
+      if (appliedVoucher.minOrderAmount > 0 && subtotal < appliedVoucher.minOrderAmount) {
+        return res.status(400).json({ message: `Voucher requires a minimum order of ₱${appliedVoucher.minOrderAmount.toFixed(2)}.` });
+      }
+      if (!Voucher.hasUnusedClaim(appliedVoucher.id, userId)) {
+        return res.status(400).json({ message: 'You must claim this voucher before using it.' });
+      }
+
+      if (appliedVoucher.discountType === 'percent') {
+        voucherDiscount = (subtotal * appliedVoucher.discountValue) / 100;
+      } else {
+        voucherDiscount = appliedVoucher.discountValue;
+      }
+
+      if (appliedVoucher.maxDiscount > 0) {
+        voucherDiscount = Math.min(voucherDiscount, appliedVoucher.maxDiscount);
+      }
+
+      voucherDiscount = Math.min(voucherDiscount, subtotal);
+    }
+
+    const finalTotal = Math.max(0, subtotal - voucherDiscount);
+    console.log('  Subtotal:', subtotal);
+    console.log('  Voucher discount:', voucherDiscount);
+    console.log('  Final total for DB:', finalTotal);
+
     const order = Order.create({
       shippingAddress1: shippingAddress1 || '',
       shippingAddress2: shippingAddress2 || '',
       phone: phone || '',
       status: status || 'Pending',
-      totalPrice: parsedTotal,
+      totalPrice: finalTotal,
+      voucherDiscount,
+      voucherId: appliedVoucher?.id || null,
+      voucherCode: appliedVoucher?.promoCode || '',
       paymentMethod: paymentMethod || '',
-      user: parseInt(user),
+      user: userId,
     }, normalizedItems);
 
     console.log('✅ Order created with ID:', order.id, 'Total:', order.totalPrice);
+
+    if (appliedVoucher?.id) {
+      Voucher.markClaimUsed(appliedVoucher.id, userId, order.id);
+    }
 
     // Decrease stock for each item
     for (const item of normalizedItems) {
@@ -221,6 +360,26 @@ router.put('/:id', async (req, res) => {
           message: `Your order #${order._id} status has been updated to ${status}.`,
           orderId: order.id,
         });
+
+        if (userObj.pushToken && isValidExpoPushToken(userObj.pushToken)) {
+          const pushResult = await sendExpoPushMessages([
+            {
+              to: userObj.pushToken,
+              sound: 'default',
+              title: `Order ${status}`,
+              body: `Your order #${order._id} status has been updated to ${status}.`,
+              data: {
+                type: statusTypeMap[status] || 'order_confirmed',
+                orderId: order.id,
+                status,
+              },
+            },
+          ]);
+
+          if (pushResult.staleTokens.has(userObj.pushToken)) {
+            User.update(userObj.id, { pushToken: null });
+          }
+        }
       }
 
       // Notify admins for delivered orders
@@ -230,9 +389,24 @@ router.put('/:id', async (req, res) => {
           Notification.create({
             user: admin.id, type: 'admin_order_delivered',
             title: 'Order Delivered',
-            message: `Order #${order._id} has been delivered to ${userObj.name}.`,
+            message: `Order #${order._id} has been delivered to ${userObj?.name || 'customer'}.`,
             orderId: order.id,
           });
+        }
+
+        // Award loyalty points: 1 point per ₱1 spent (rounded down)
+        if (userObj) {
+          const pointsEarned = Math.floor(order.totalPrice || 0);
+          if (pointsEarned > 0) {
+            const currentPoints = userObj.loyaltyPoints || 0;
+            User.update(userObj.id, { loyaltyPoints: currentPoints + pointsEarned });
+            Notification.create({
+              user: userObj.id, type: 'loyalty_points',
+              title: '🎉 Loyalty Points Earned!',
+              message: `You earned ${pointsEarned} loyalty points for order #${order._id}! Total: ${currentPoints + pointsEarned} pts.`,
+              orderId: order.id,
+            });
+          }
         }
       }
     }

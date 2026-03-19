@@ -10,6 +10,7 @@ import {
     SET_WISHLIST
 } from '../constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearCartItems, getCartItems, saveCartItems } from '../Storage/cartStorage';
 
 // ─── Persistence helpers ─────────────────────────────────────────────
 let _currentUserId = null;
@@ -18,13 +19,12 @@ export const setCartUserId = (userId) => {
     _currentUserId = userId;
 };
 
-const cartKey = (userId) => `@cart_${userId || 'guest'}`;
 const wishlistKey = (userId) => `@wishlist_${userId || 'guest'}`;
 
 const persistCart = async (getState) => {
     try {
         const items = getState().cartItems;
-        await AsyncStorage.setItem(cartKey(_currentUserId), JSON.stringify(items));
+        await saveCartItems(_currentUserId, items);
     } catch (e) {
         console.log('Persist cart error:', e);
     }
@@ -43,8 +43,8 @@ const persistWishlist = async (getState) => {
 export const loadUserCart = (userId) => {
     return async (dispatch) => {
         try {
-            const data = await AsyncStorage.getItem(cartKey(userId));
-            const items = data ? JSON.parse(data) : [];
+            setCartUserId(userId);
+            const items = await getCartItems(userId);
             dispatch({ type: SET_CART, payload: items });
         } catch (e) {
             console.log('Load cart error:', e);
@@ -80,8 +80,9 @@ export const removeFromCart = (payload) => {
 };
 
 export const clearCart = () => {
-    return (dispatch, getState) => {
+    return async (dispatch, getState) => {
         dispatch({ type: CLEAR_CART });
+        await clearCartItems(_currentUserId);
         persistCart(getState);
     };
 };

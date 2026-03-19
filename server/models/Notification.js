@@ -26,11 +26,12 @@ const Notification = {
   create(data) {
     const now = nowISO();
     const info = db.prepare(`
-      INSERT INTO notifications (userId, type, title, message, orderId, productId, read, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notifications (userId, type, title, message, orderId, productId, imageUrl, voucherId, expiresAt, read, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       data.user || data.userId, data.type, data.title, data.message,
       data.order || data.orderId || null, data.product || data.productId || null,
+      data.imageUrl || '', data.voucherId || null, data.expiresAt || null,
       0, now, now
     );
     return Notification.findById(info.lastInsertRowid);
@@ -61,6 +62,9 @@ const Notification = {
       user: row.userId ? String(row.userId) : null,
       order: row.orderId ? String(row.orderId) : null,
       product: row.productId ? String(row.productId) : null,
+      voucherId: row.voucherId ? String(row.voucherId) : null,
+      imageUrl: row.imageUrl || '',
+      expiresAt: row.expiresAt || null,
       read: !!row.read,
     };
   },

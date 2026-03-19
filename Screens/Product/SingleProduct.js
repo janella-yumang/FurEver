@@ -6,6 +6,8 @@ import {
 import { Surface } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { useDispatch, useSelector } from 'react-redux';
 import { addToCart } from '../../Redux/Actions/cartActions';
 import { addToWishlist, removeFromWishlist } from '../../Redux/Actions/cartActions';
@@ -14,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import Toast from 'react-native-toast-message';
+import { fetchProductReviews } from '../../Redux/Actions/reviewActions';
 
 var { width } = Dimensions.get('window');
 
@@ -40,7 +43,6 @@ const StarRating = ({ rating, size = 16, interactive = false, onRate }) => {
 
 const SingleProduct = ({ route }) => {
     const [item, setItem] = useState(route.params.item);
-    const [reviews, setReviews] = useState([]);
     const [userRating, setUserRating] = useState(0);
     const [reviewText, setReviewText] = useState('');
     const [showReviewForm, setShowReviewForm] = useState(false);
@@ -49,9 +51,15 @@ const SingleProduct = ({ route }) => {
     const [editText, setEditText] = useState('');
     const [quantity, setQuantity] = useState(1);
     const [userHasDelivered, setUserHasDelivered] = useState(false);
+    const [reviewImage, setReviewImage] = useState('');
+    const [editImage, setEditImage] = useState('');
+    const [similarProducts, setSimilarProducts] = useState([]);
     const dispatch = useDispatch();
+    const navigation = useNavigation();
     const context = useContext(AuthGlobal);
     const wishlistItems = useSelector(state => state.wishlistItems);
+    const productId = String(item._id || item.id);
+    const reviews = useSelector((state) => state.reviews?.byProduct?.[productId] || []);
 
     const isInWishlist = wishlistItems.some(
         w => (w._id || w.id) === (item._id || item.id)
@@ -60,12 +68,46 @@ const SingleProduct = ({ route }) => {
     const getReviewId = (review) => review?._id || review?.id;
 
     const loadReviews = useCallback(() => {
-        axios.get(`${baseURL}products/${item._id || item.id}/reviews`)
-            .then(res => setReviews(res.data || []))
-            .catch(() => {
-                setReviews([]);
-            });
+        dispatch(fetchProductReviews(productId)).catch(() => {
+            // Error state is tracked in Redux; avoid breaking the screen flow.
+        });
+    }, [dispatch, productId]);
+
+    const loadSimilarProducts = useCallback(() => {
+        axios.get(`${baseURL}products/${item._id || item.id}/similar`)
+            .then(res => setSimilarProducts(res.data || []))
+            .catch(() => setSimilarProducts([]));
     }, [item]);
+
+    const pickReviewImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'Camera roll access is needed to attach photos.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true, aspect: [4, 3], quality: 0.6, base64: true,
+        });
+        if (!result.canceled && result.assets?.[0]?.base64) {
+            setReviewImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
+        }
+    };
+
+    const pickEditImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'Camera roll access is needed to attach photos.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true, aspect: [4, 3], quality: 0.6, base64: true,
+        });
+        if (!result.canceled && result.assets?.[0]?.base64) {
+            setEditImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
+        }
+    };
 
     const checkUserPurchaseStatus = useCallback(async () => {
         if (!context.stateUser?.isAuthenticated) {
@@ -124,7 +166,8 @@ const SingleProduct = ({ route }) => {
             console.log('🔄 SingleProduct screen focused - refreshing reviews and purchase status');
             loadReviews();
             checkUserPurchaseStatus();
-        }, [loadReviews, checkUserPurchaseStatus])
+            loadSimilarProducts();
+        }, [loadReviews, checkUserPurchaseStatus, loadSimilarProducts])
     );
 
     const handleAddToCart = () => {
@@ -164,12 +207,11 @@ const SingleProduct = ({ route }) => {
 
         try {
             const token = await AsyncStorage.getItem('jwt');
-            const productId = item._id || item.id;
             console.log('📝 Submitting review for product:', productId, 'rating:', userRating);
             
             const res = await axios.post(
                 `${baseURL}products/${productId}/reviews`,
-                { rating: userRating, text: reviewText },
+                { rating: userRating, text: reviewText, image: reviewImage },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             console.log('✅ Review submitted successfully:', res.data);
@@ -178,6 +220,7 @@ const SingleProduct = ({ route }) => {
             loadReviews();
             setUserRating(0);
             setReviewText('');
+            setReviewImage('');
         } catch (err) {
             console.error('❌ Review submission error:', err.response?.data || err.message);
             const apiMessage =
@@ -202,12 +245,14 @@ const SingleProduct = ({ route }) => {
         setEditingReviewId(getReviewId(review));
         setEditRating(review.rating);
         setEditText(review.text || '');
+        setEditImage(review.image || '');
     };
 
     const cancelEdit = () => {
         setEditingReviewId(null);
         setEditRating(0);
         setEditText('');
+        setEditImage('');
     };
 
     const submitEditReview = async (reviewId) => {
@@ -219,7 +264,7 @@ const SingleProduct = ({ route }) => {
             const token = await AsyncStorage.getItem('jwt');
             await axios.put(
                 `${baseURL}products/${item._id || item.id}/reviews/${reviewId}`,
-                { rating: editRating, text: editText },
+                { rating: editRating, text: editText, image: editImage },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             loadReviews();
@@ -394,6 +439,20 @@ const SingleProduct = ({ route }) => {
                                     multiline
                                     numberOfLines={3}
                                 />
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <TouchableOpacity style={styles.imagePickerBtn} onPress={pickReviewImage}>
+                                        <Ionicons name="camera-outline" size={18} color="#FF8C42" />
+                                        <Text style={styles.imagePickerText}>{reviewImage ? 'Change Photo' : 'Add Photo (optional)'}</Text>
+                                    </TouchableOpacity>
+                                    {reviewImage ? (
+                                        <TouchableOpacity onPress={() => setReviewImage('')}>
+                                            <Ionicons name="close-circle" size={20} color="#FF6B6B" />
+                                        </TouchableOpacity>
+                                    ) : null}
+                                </View>
+                                {reviewImage ? (
+                                    <Image source={{ uri: reviewImage }} style={styles.reviewImagePreview} resizeMode="cover" />
+                                ) : null}
                                 <TouchableOpacity style={styles.submitReviewButton} onPress={submitReview}>
                                     <Text style={styles.submitReviewText}>Submit Review</Text>
                                 </TouchableOpacity>
@@ -416,6 +475,20 @@ const SingleProduct = ({ route }) => {
                                             multiline
                                             numberOfLines={3}
                                         />
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                            <TouchableOpacity style={styles.imagePickerBtn} onPress={pickEditImage}>
+                                                <Ionicons name="camera-outline" size={18} color="#FF8C42" />
+                                                <Text style={styles.imagePickerText}>{editImage ? 'Change Photo' : 'Add Photo (optional)'}</Text>
+                                            </TouchableOpacity>
+                                            {editImage ? (
+                                                <TouchableOpacity onPress={() => setEditImage('')}>
+                                                    <Ionicons name="close-circle" size={20} color="#FF6B6B" />
+                                                </TouchableOpacity>
+                                            ) : null}
+                                        </View>
+                                        {editImage ? (
+                                            <Image source={{ uri: editImage }} style={styles.reviewImagePreview} resizeMode="cover" />
+                                        ) : null}
                                         <View style={{ flexDirection: 'row', gap: 8 }}>
                                             <TouchableOpacity
                                                 style={[styles.submitReviewButton, { flex: 1 }]}
@@ -452,12 +525,43 @@ const SingleProduct = ({ route }) => {
                                         </View>
                                         <StarRating rating={review.rating} size={14} />
                                         <Text style={styles.reviewTextContent}>{review.text}</Text>
+                                        {review.image ? (
+                                            <Image source={{ uri: review.image }} style={styles.reviewImageDisplay} resizeMode="cover" />
+                                        ) : null}
                                     </>
                                 )}
                             </View>
                         ))}
                     </View>
                 </View>
+
+                {/* Similar Products */}
+                {similarProducts.length > 0 && (
+                    <View style={[styles.section, { marginBottom: 8 }]}>
+                        <Text style={styles.sectionTitle}>You May Also Like</Text>
+                        <FlatList
+                            horizontal
+                            data={similarProducts}
+                            keyExtractor={(p) => String(p._id || p.id)}
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ gap: 12, paddingRight: 4 }}
+                            renderItem={({ item: sp }) => (
+                                <TouchableOpacity
+                                    style={styles.similarCard}
+                                    onPress={() => navigation.push('Product Detail', { item: sp })}
+                                >
+                                    <Image
+                                        source={{ uri: sp.image || 'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png' }}
+                                        style={styles.similarImage}
+                                        resizeMode="contain"
+                                    />
+                                    <Text style={styles.similarName} numberOfLines={2}>{sp.name}</Text>
+                                    <Text style={styles.similarPrice}>₱{sp.price?.toFixed(2)}</Text>
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </View>
+                )}
             </ScrollView>
 
             {/* Bottom Action Bar */}
@@ -761,6 +865,63 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#666',
         flex: 1,
+    },
+    imagePickerBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#FFF3E0',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#FF8C4240',
+    },
+    imagePickerText: {
+        fontSize: 13,
+        color: '#FF8C42',
+        fontWeight: '600',
+    },
+    reviewImagePreview: {
+        width: '100%',
+        height: 160,
+        borderRadius: 8,
+        marginTop: 4,
+    },
+    reviewImageDisplay: {
+        width: '100%',
+        height: 160,
+        borderRadius: 8,
+        marginTop: 8,
+    },
+    similarCard: {
+        width: 140,
+        backgroundColor: 'white',
+        borderRadius: 10,
+        padding: 8,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
+    },
+    similarImage: {
+        width: '100%',
+        height: 90,
+        borderRadius: 6,
+        marginBottom: 6,
+    },
+    similarName: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#333',
+        marginBottom: 4,
+        lineHeight: 16,
+    },
+    similarPrice: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#FF6B6B',
     },
 })
 

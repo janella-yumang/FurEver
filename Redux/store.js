@@ -3,10 +3,16 @@ import { thunk } from 'redux-thunk';
 
 import cartItems from './Reducers/cartItems';
 import wishlistItems from './Reducers/wishlistItems';
+import products from './Reducers/products';
+import orders from './Reducers/orders';
+import reviews from './Reducers/reviews';
 
 const reducers = combineReducers({
     cartItems: cartItems,
-    wishlistItems: wishlistItems
+    wishlistItems: wishlistItems,
+    products: products,
+    orders: orders,
+    reviews: reviews,
 })
 
 const store = createStore(

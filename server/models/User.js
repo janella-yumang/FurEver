@@ -29,8 +29,8 @@ const User = {
   create(data) {
     const now = nowISO();
     const stmt = db.prepare(`
-      INSERT INTO users (name, email, password, phone, isAdmin, role, shippingAddress, preferredPets, image, isActive, emailVerified, verificationCode, verificationExpires, googleId, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (name, email, password, phone, isAdmin, role, shippingAddress, preferredPets, image, isActive, emailVerified, verificationCode, verificationExpires, googleId, pushToken, loyaltyPoints, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.name, (data.email || '').toLowerCase(), data.password, data.phone || '',
@@ -38,7 +38,8 @@ const User = {
       JSON.stringify(data.preferredPets || []), data.image || '',
       data.isActive !== undefined ? (data.isActive ? 1 : 0) : 1,
       data.emailVerified ? 1 : 0, data.verificationCode || null,
-      data.verificationExpires || null, data.googleId || null, now, now
+      data.verificationExpires || null, data.googleId || null, data.pushToken || null,
+      parseInt(data.loyaltyPoints) || 0, now, now
     );
     return User.findById(info.lastInsertRowid);
   },
@@ -58,7 +59,9 @@ const User = {
     if (data.verificationCode !== undefined) { fields.push('verificationCode = ?'); params.push(data.verificationCode); }
     if (data.verificationExpires !== undefined) { fields.push('verificationExpires = ?'); params.push(data.verificationExpires); }
     if (data.googleId !== undefined) { fields.push('googleId = ?'); params.push(data.googleId); }
+    if (data.pushToken !== undefined) { fields.push('pushToken = ?'); params.push(data.pushToken); }
     if (data.password !== undefined) { fields.push('password = ?'); params.push(data.password); }
+    if (data.loyaltyPoints !== undefined) { fields.push('loyaltyPoints = ?'); params.push(parseInt(data.loyaltyPoints) || 0); }
     if (!fields.length) return User.findById(id);
     fields.push('updatedAt = ?'); params.push(nowISO()); params.push(id);
     db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...params);
@@ -77,12 +80,13 @@ const User = {
       isActive: row.isActive !== 0,
       emailVerified: !!row.emailVerified,
       preferredPets: typeof row.preferredPets === 'string' ? JSON.parse(row.preferredPets || '[]') : (row.preferredPets || []),
+      loyaltyPoints: parseInt(row.loyaltyPoints) || 0,
     };
   },
 
   toJSON(user) {
     if (!user) return null;
-    const { password, verificationCode, verificationExpires, ...safe } = user;
+    const { password, verificationCode, verificationExpires, pushToken, ...safe } = user;
     return safe;
   },
 };

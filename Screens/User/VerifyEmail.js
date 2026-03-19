@@ -9,6 +9,7 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
@@ -22,11 +23,13 @@ const VerifyEmail = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const email = route.params?.email || '';
+  const initialEmailDebug = route.params?.emailDebug || null;
 
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [countdown, setCountdown] = useState(60);
+  const [emailDebug, setEmailDebug] = useState(initialEmailDebug);
   const inputs = useRef([]);
 
   // Countdown timer for resend
@@ -100,7 +103,8 @@ const VerifyEmail = () => {
     if (countdown > 0) return;
     setResendLoading(true);
     try {
-      await axios.post(`${baseURL}users/resend-code`, { email });
+      const res = await axios.post(`${baseURL}users/resend-code`, { email });
+      setEmailDebug(res?.data?.emailDebug || null);
       Toast.show({
         topOffset: 60,
         type: 'success',
@@ -121,6 +125,15 @@ const VerifyEmail = () => {
     ? email.replace(/(.{2})(.*)(@.*)/, (_, a, b, c) => a + '*'.repeat(b.length) + c)
     : '';
 
+  const openPreview = async () => {
+    if (!emailDebug?.previewUrl) return;
+    try {
+      await Linking.openURL(emailDebug.previewUrl);
+    } catch (err) {
+      Toast.show({ topOffset: 60, type: 'error', text1: 'Could not open preview URL' });
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -137,6 +150,20 @@ const VerifyEmail = () => {
           We sent a 6-digit code to{'\n'}
           <Text style={styles.emailText}>{maskedEmail}</Text>
         </Text>
+
+        {!!emailDebug && (
+          <View style={styles.devCard}>
+            <Text style={styles.devTitle}>Development helper</Text>
+            {!!emailDebug?.fallbackCode && (
+              <Text style={styles.devText}>Fallback code: {emailDebug.fallbackCode}</Text>
+            )}
+            {!!emailDebug?.previewUrl && (
+              <TouchableOpacity onPress={openPreview}>
+                <Text style={styles.previewLink}>Open email preview</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* OTP Input */}
         <View style={styles.codeRow}>
@@ -237,6 +264,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 32,
+  },
+  devCard: {
+    width: '100%',
+    backgroundColor: '#FFF6EE',
+    borderWidth: 1,
+    borderColor: '#FFD7B8',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 18,
+  },
+  devTitle: {
+    color: '#9A5A2A',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  devText: {
+    color: '#7A4A25',
+    fontSize: 14,
+    marginBottom: 6,
+  },
+  previewLink: {
+    color: '#FF8C42',
+    fontWeight: '700',
+    fontSize: 14,
   },
   emailText: {
     color: '#FF8C42',

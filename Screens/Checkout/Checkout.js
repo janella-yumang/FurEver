@@ -26,11 +26,28 @@ const Checkout = (props) => {
     const [phone, setPhone] = useState('')
     const [showMapPicker, setShowMapPicker] = useState(false)
     const [coordinates, setCoordinates] = useState(null)
+    const [availableVouchers, setAvailableVouchers] = useState([])
+    const [selectedVoucherId, setSelectedVoucherId] = useState('')
 
     const navigation = useNavigation()
     const cartItems = useSelector(state => state.cartItems)
     const context = useContext(AuthGlobal);
     
+    const loadAvailableVouchers = (tokenValue, userId) => {
+        axios
+            .get(`${baseURL}notifications/promotions/vouchers/available/${userId}`, {
+                headers: { Authorization: `Bearer ${tokenValue}` },
+            })
+            .then((res) => {
+                const vouchers = Array.isArray(res.data) ? res.data : [];
+                setAvailableVouchers(vouchers);
+            })
+            .catch((err) => {
+                console.log('Error loading vouchers:', err?.response?.data || err?.message || err);
+                setAvailableVouchers([]);
+            });
+    };
+
     useEffect(() => {
         setOrderItems(cartItems)
         if (context.stateUser.isAuthenticated) {
@@ -38,6 +55,9 @@ const Checkout = (props) => {
             // Fetch user profile to pre-populate address fields
             AsyncStorage.getItem('jwt')
                 .then((token) => {
+                    if (token && context.stateUser.user.userId) {
+                        loadAvailableVouchers(token, context.stateUser.user.userId);
+                    }
                     axios
                         .get(`${baseURL}users/${context.stateUser.user.userId}`, {
                             headers: { Authorization: `Bearer ${token}` },
@@ -87,6 +107,19 @@ const Checkout = (props) => {
             return t + itemTotal;
         }, 0);
         console.log(`  Subtotal: $${subtotal}`);
+
+        const selectedVoucher = availableVouchers.find((v) => String(v.id) === String(selectedVoucherId));
+        let discount = 0;
+        if (selectedVoucher) {
+            discount = (subtotal * (selectedVoucher.discountValue || 0)) / 100;
+            if ((selectedVoucher.maxDiscount || 0) > 0) {
+                discount = Math.min(discount, selectedVoucher.maxDiscount);
+            }
+            discount = Math.min(discount, subtotal);
+        }
+
+        console.log(`  Voucher discount preview: $${discount}`);
+        console.log(`  Total after discount preview: $${subtotal - discount}`);
         
         const order = {
             dateOrdered: Date.now(),
@@ -96,6 +129,9 @@ const Checkout = (props) => {
             shippingAddress2: address2,
             status: "Pending",
             user,
+            voucherId: selectedVoucher ? selectedVoucher.id : null,
+            voucherCode: selectedVoucher ? selectedVoucher.promoCode : null,
+            voucherPreviewDiscount: discount,
         }
         console.log('✅ Order forwarding to Payment with items:', order.orderItems?.length);
         console.log('   Total should be $' + subtotal + '\n');
@@ -153,6 +189,28 @@ const Checkout = (props) => {
                     onChangeText={(text) => setAddress2(text)}
                 />
 
+                {availableVouchers.length > 0 && (
+                    <View style={styles.voucherSection}>
+                        <Text style={styles.voucherTitle}>Available Vouchers</Text>
+                        {availableVouchers.map((voucher) => {
+                            const isSelected = String(selectedVoucherId) === String(voucher.id);
+                            return (
+                                <TouchableOpacity
+                                    key={voucher.id}
+                                    style={[styles.voucherCard, isSelected && styles.voucherCardSelected]}
+                                    onPress={() => setSelectedVoucherId(isSelected ? '' : String(voucher.id))}
+                                >
+                                    <Text style={styles.voucherCode}>{voucher.promoCode}</Text>
+                                    <Text style={styles.voucherMeta}>{voucher.discountValue}% off</Text>
+                                    {!!voucher.expiresAt && (
+                                        <Text style={styles.voucherMeta}>Expires: {new Date(voucher.expiresAt).toLocaleString()}</Text>
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
+
                 <View style={{ width: '80%', alignItems: "center" }}>
                     <Button title="Confirm" onPress={() => checkOut()} />
                 </View>
@@ -186,6 +244,39 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
         marginLeft: 10,
+    },
+    voucherSection: {
+        width: '80%',
+        marginTop: 10,
+        marginBottom: 12,
+    },
+    voucherTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#333',
+        marginBottom: 8,
+    },
+    voucherCard: {
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 10,
+        padding: 10,
+        backgroundColor: '#fff',
+        marginBottom: 8,
+    },
+    voucherCardSelected: {
+        borderColor: '#FF8C42',
+        backgroundColor: '#FFF3E8',
+    },
+    voucherCode: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#FF8C42',
+    },
+    voucherMeta: {
+        fontSize: 12,
+        color: '#555',
+        marginTop: 2,
     },
 });
 

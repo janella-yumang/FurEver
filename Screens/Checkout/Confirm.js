@@ -59,6 +59,9 @@ const Confirm = (props) => {
     }
 
     const orderData = params.order || params;
+    const subtotal = orderData.orderItems?.reduce((t, i) => t + (i.price * (i.quantity || 1)), 0) || 0;
+    const voucherDiscount = parseFloat(orderData.voucherPreviewDiscount) || 0;
+    const finalTotal = Math.max(0, subtotal - voucherDiscount);
 
     const confirmOrder = () => {
         if (!orderData || !token) {
@@ -78,8 +81,10 @@ const Confirm = (props) => {
         }
 
         // Calculate total from orderItems
-        const totalPrice = orderData.orderItems?.reduce((t, i) => t + (i.price * (i.quantity || 1)), 0) || 0;
-        console.log('💰 PLACING ORDER - Total calculated:', totalPrice);
+        const totalPrice = finalTotal;
+        console.log('💰 PLACING ORDER - Subtotal:', subtotal);
+        console.log('💰 Voucher discount:', voucherDiscount);
+        console.log('💰 Final total calculated:', totalPrice);
 
         const normalizedOrderItems = (orderData.orderItems || []).map((item) => ({
             ...item,
@@ -91,6 +96,8 @@ const Confirm = (props) => {
             ...orderData,
             orderItems: normalizedOrderItems,
             totalPrice,
+            voucherId: orderData.voucherId || null,
+            voucherCode: orderData.voucherCode || null,
             paymentMethod: orderData.paymentMethod || orderData.payment?.method || '',
         };
 
@@ -210,13 +217,16 @@ const Confirm = (props) => {
                     <View style={styles.summaryBox}>
                         <SummaryRow
                             label="Subtotal"
-                            value={`$${(orderData.orderItems?.reduce((t, i) => t + (i.price * (i.quantity || 1)), 0) || 0).toFixed(2)}`}
+                            value={`$${subtotal.toFixed(2)}`}
                         />
+                        {voucherDiscount > 0 && (
+                            <SummaryRow label="Voucher Discount" value={`-$${voucherDiscount.toFixed(2)}`} color="#FF8C42" />
+                        )}
                         <SummaryRow label="Shipping" value="FREE" color="#20C997" />
                         <Divider style={styles.divider} />
                         <SummaryRow
                             label="Total"
-                            value={`$${(orderData.orderItems?.reduce((t, i) => t + (i.price * (i.quantity || 1)), 0) || 0).toFixed(2)}`}
+                            value={`$${finalTotal.toFixed(2)}`}
                             isBold
                         />
                     </View>

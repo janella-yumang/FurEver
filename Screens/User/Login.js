@@ -17,6 +17,7 @@ import Input from "../../Shared/Input";
 import Toast from "react-native-toast-message";
 import baseURL from "../../assets/common/baseurl";
 import { findQuickLoginAccount, generateOfflineJWT } from "../../assets/common/quickLoginAccounts";
+import { registerPushTokenForUser } from "../../assets/common/pushNotifications";
 
 var { width } = Dimensions.get('window')
 
@@ -128,6 +129,10 @@ const Login = (props) => {
                 // Save JWT and set auth context
                 await AsyncStorage.setItem('jwt', data.token);
                 const tokenDecoded = jwtDecode(data.token);
+
+                registerPushTokenForUser(tokenDecoded.userId, data.token).catch((error) => {
+                    console.log('Push token registration failed:', error?.message || error);
+                });
                 
                 context.dispatch(setCurrentUser(tokenDecoded, data.user));
                 setCartUserId(tokenDecoded.userId);
@@ -164,34 +169,70 @@ const Login = (props) => {
 
     const handleSubmit = () => {
         const user = {
-            email,
+            email: email.trim().toLowerCase(),
             password,
         };
 
-        if (email === "" || password === "") {
+        if (user.email === "" || password === "") {
             setError("Please fill in your credentials");
         } else {
             loginUser(user, context.dispatch, navigation);
         }
     };
 
-    // Quick-login helper — offline mode (works without internet/database)
+    // Quick-login helper — prefer backend auth so protected admin APIs still work.
     const quickLogin = async (email, accountType) => {
         try {
-            // Offline quick login - works without internet
             const account = findQuickLoginAccount(email, "password123");
             
             if (account) {
-                // Generate offline token for development
+                try {
+                    const response = await fetch(`${baseURL}users/login`, {
+                        method: "POST",
+                        headers: {
+                            Accept: "application/json",
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            email: account.email.toLowerCase(),
+                            password: account.password,
+                        }),
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data?.token) {
+                        await AsyncStorage.setItem("jwt", data.token);
+                        const decoded = jwtDecode(data.token);
+
+                        registerPushTokenForUser(decoded.userId, data.token).catch((error) => {
+                            console.log('Push token registration failed:', error?.message || error);
+                        });
+
+                        context.dispatch(setCurrentUser(decoded, data.user || account));
+                        setCartUserId(decoded.userId);
+                        reduxDispatch(loadUserCart(decoded.userId));
+                        reduxDispatch(loadUserWishlist(decoded.userId));
+
+                        Toast.show({
+                            topOffset: 60,
+                            type: "success",
+                            text1: `Logged in as ${data?.user?.name || account.name}`,
+                            text2: `${account.type === "admin" ? "Admin" : "Customer"} (Online)`,
+                        });
+                        return;
+                    }
+                } catch (onlineError) {
+                    console.log('Quick login backend auth failed, falling back offline:', onlineError?.message || onlineError);
+                }
+
                 const token = generateOfflineJWT(account);
                 await AsyncStorage.setItem("jwt", token);
-                
+
                 const decoded = jwtDecode(token);
-                
-                // Set authentication context
+
                 context.dispatch(setCurrentUser(decoded, account));
 
-                // Load persisted cart & wishlist for this user
                 setCartUserId(decoded.userId);
                 reduxDispatch(loadUserCart(decoded.userId));
                 reduxDispatch(loadUserWishlist(decoded.userId));

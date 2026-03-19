@@ -30,6 +30,7 @@ const TYPE_CONFIG = {
   admin_order_delivered: { icon: 'checkmark-done-circle', color: '#51CF66', label: 'Order Delivered' },
   admin_low_stock: { icon: 'warning', color: '#FFD43B', label: 'Low Stock' },
   admin_out_of_stock: { icon: 'alert-circle', color: '#FF6B6B', label: 'Out of Stock' },
+  promo_discount: { icon: 'pricetag', color: '#FF8C42', label: 'Promotion' },
 };
 
 const Notifications = () => {
@@ -106,16 +107,22 @@ const Notifications = () => {
 
   const handlePress = (notif) => {
     if (!notif.read) markAsRead(notif._id);
+
+    navigation.navigate('Notification Detail', {
+      notificationId: notif._id,
+      notification: notif,
+    });
+
     // Navigate to order history if it's an order notification
     if (notif.type?.startsWith('order_')) {
-      navigation.navigate('Order History');
+      return;
     }
     // Admin notifications: navigate to admin orders or products
     if (notif.type === 'admin_new_order' || notif.type === 'admin_order_delivered') {
-      navigation.navigate('Orders');
+      return;
     }
     if (notif.type === 'admin_low_stock' || notif.type === 'admin_out_of_stock') {
-      navigation.navigate('Products');
+      return;
     }
   };
 

@@ -11,6 +11,8 @@ import baseURL from "../../assets/common/baseurl";
 import { useFocusEffect } from '@react-navigation/native';
 import { Platform } from 'react-native';
 import Slider from '@react-native-community/slider';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchProducts } from '../../Redux/Actions/productActions';
 
 const PET_TYPES = ['All', 'Dog', 'Cat', 'Fish', 'Bird', 'Rabbit', 'Hamster'];
 const PRODUCT_CATEGORIES = ['All', 'Pet Food', 'Treats', 'Toys', 'Grooming', 'Health', 'Accessories', 'Habitat'];
@@ -43,7 +45,9 @@ const mockCategories = [
 var { height, width } = Dimensions.get('window')
 
 const ProductContainer = () => {
-    const [products, setProducts] = useState([])
+    const dispatch = useDispatch();
+    const productsState = useSelector((state) => state.products);
+    const products = productsState?.data || [];
     const [productsFiltered, setProductsFiltered] = useState([]);
     const [focus, setFocus] = useState('');
     const [categories, setCategories] = useState([]);
@@ -133,25 +137,22 @@ const ProductContainer = () => {
                 setFocus(false);
                 setActive(-1);
                 if (Platform.OS === 'web') {
-                    setProducts(mockProducts);
                     setProductsFiltered(mockProducts);
                     setProductsCtg(mockProducts);
                     setInitialState(mockProducts);
                     setCategories(mockCategories);
                     setLoading(false);
                 } else {
-                    axios
-                        .get(`${baseURL}products`)
-                        .then((res) => {
-                            setProducts(res.data);
-                            setProductsFiltered(res.data);
-                            setProductsCtg(res.data);
-                            setInitialState(res.data);
+                    dispatch(fetchProducts())
+                        .then((data) => {
+                            const productData = data || [];
+                            setProductsFiltered(productData);
+                            setProductsCtg(productData);
+                            setInitialState(productData);
                             setLoading(false)
                         })
                         .catch((error) => {
                             console.log('Api call error')
-                            setProducts(mockProducts);
                             setProductsFiltered(mockProducts);
                             setProductsCtg(mockProducts);
                             setInitialState(mockProducts);
@@ -170,7 +171,6 @@ const ProductContainer = () => {
                 }
 
                 return () => {
-                    setProducts([]);
                     setProductsFiltered([]);
                     setFocus(false);
                     setCategories([]);

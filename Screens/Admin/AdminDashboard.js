@@ -259,6 +259,18 @@ const AdminDashboard = () => {
                     onPress={() => navigation.navigate("ManageUsers")}
                     color="#FF6B6B"
                 />
+                <ActionButton
+                    icon="megaphone"
+                    label="Promotions"
+                    onPress={() => navigation.navigate("PromotionBroadcast")}
+                    color="#1E9E6A"
+                />
+                <ActionButton
+                    icon="ticket"
+                    label="Vouchers"
+                    onPress={() => navigation.navigate("VoucherManagement")}
+                    color="#845EF7"
+                />
             </View>
 
             {/* Products Section */}

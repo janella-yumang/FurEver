@@ -75,6 +75,20 @@ const UserProfile = (props) => {
                     </View>
                 </View>
 
+                {/* Loyalty Points Card */}
+                {userProfile && (
+                    <View style={styles.pointsCard}>
+                        <View style={styles.pointsLeft}>
+                            <Ionicons name="star" size={28} color="#FFD43B" />
+                            <View style={{ marginLeft: 12 }}>
+                                <Text style={styles.pointsLabel}>Loyalty Points</Text>
+                                <Text style={styles.pointsValue}>{userProfile.loyaltyPoints ?? 0} pts</Text>
+                            </View>
+                        </View>
+                        <Text style={styles.pointsHint}>1 pt earned per ₱1 spent</Text>
+                    </View>
+                )}
+
                 {/* Contact Info */}
                 <View style={styles.infoCard}>
                     <View style={styles.infoRow}>
@@ -192,6 +206,41 @@ const styles = StyleSheet.create({
     roleText: {
         fontSize: 13,
         fontWeight: '600',
+    },
+    pointsCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#FFFBEA',
+        marginHorizontal: 16,
+        marginTop: 16,
+        borderRadius: 14,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#FFD43B50',
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+    },
+    pointsLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    pointsLabel: {
+        fontSize: 13,
+        color: '#888',
+        fontWeight: '500',
+    },
+    pointsValue: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#F59F00',
+    },
+    pointsHint: {
+        fontSize: 11,
+        color: '#aaa',
     },
     infoCard: {
         backgroundColor: 'white',

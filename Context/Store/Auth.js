@@ -1,7 +1,7 @@
 import React, { useEffect, useReducer, userEffect, useState } from "react";
 // import "core-js/stable/atob";
 import { jwtDecode } from "jwt-decode"
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as SecureStore from 'expo-secure-store'
 
 import authReducer from "../Reducers/Auth.reducer";
 import { setCurrentUser } from "../Actions/Auth.actions";
@@ -17,12 +17,13 @@ const Auth = props => {
 
     useEffect(() => {
         setShowChild(true);
-        if (AsyncStorage.jwt) {
-            const decoded = AsyncStorage.jwt ? AsyncStorage.jwt : "";
-            if (setShowChild) {
-                dispatch(setCurrentUser(jwtDecode(decoded)))
+        SecureStore.getItemAsync('jwt').then((token) => {
+            if (token) {
+                try {
+                    dispatch(setCurrentUser(jwtDecode(token)));
+                } catch (_) {}
             }
-        }
+        }).catch(() => {});
         return () => setShowChild(false);
     }, [])
 

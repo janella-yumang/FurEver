@@ -9,3 +9,19 @@ export const ADD_TO_WISHLIST = "ADD_TO_WISHLIST";
 export const REMOVE_FROM_WISHLIST = "REMOVE_FROM_WISHLIST";
 export const CLEAR_WISHLIST = "CLEAR_WISHLIST";
 export const SET_WISHLIST = "SET_WISHLIST";
+
+// Products
+export const PRODUCTS_REQUEST = "PRODUCTS_REQUEST";
+export const PRODUCTS_SUCCESS = "PRODUCTS_SUCCESS";
+export const PRODUCTS_FAIL = "PRODUCTS_FAIL";
+
+// Orders
+export const ORDERS_REQUEST = "ORDERS_REQUEST";
+export const ORDERS_SUCCESS = "ORDERS_SUCCESS";
+export const ORDERS_FAIL = "ORDERS_FAIL";
+
+// Reviews
+export const REVIEWS_REQUEST = "REVIEWS_REQUEST";
+export const REVIEWS_SUCCESS = "REVIEWS_SUCCESS";
+export const REVIEWS_FAIL = "REVIEWS_FAIL";
+export const REVIEWS_CLEAR = "REVIEWS_CLEAR";

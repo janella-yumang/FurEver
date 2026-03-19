@@ -110,6 +110,7 @@ const Product = {
       name: r.name,
       rating: r.rating,
       text: r.text,
+      image: r.image || '',
       status: r.status,
       date: r.createdAt ? r.createdAt.split('T')[0] : '',
       createdAt: r.createdAt,
@@ -119,9 +120,9 @@ const Product = {
   addReview(productId, data) {
     const now = nowISO();
     db.prepare(`
-      INSERT INTO reviews (productId, userId, name, rating, text, status, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(productId, data.userId || null, data.name || '', data.rating, data.text || '', data.status || 'approved', now, now);
+      INSERT INTO reviews (productId, userId, name, rating, text, image, status, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(productId, data.userId || null, data.name || '', data.rating, data.text || '', data.image || '', data.status || 'approved', now, now);
     Product._recalcRating(productId);
   },
 
@@ -134,6 +135,7 @@ const Product = {
     const fields = []; const params = [];
     if (data.rating !== undefined) { fields.push('rating = ?'); params.push(Number(data.rating)); }
     if (data.text !== undefined) { fields.push('text = ?'); params.push(data.text); }
+    if (data.image !== undefined) { fields.push('image = ?'); params.push(data.image); }
     if (data.status !== undefined) { fields.push('status = ?'); params.push(data.status); }
     if (!fields.length) return Product.findReview(reviewId);
     fields.push('updatedAt = ?'); params.push(nowISO()); params.push(reviewId);
@@ -176,6 +178,7 @@ const Product = {
       name: r.name,
       rating: r.rating,
       text: r.text,
+      image: r.image || '',
       status: r.status || 'pending',
       date: r.createdAt ? r.createdAt.split('T')[0] : '',
     }));

@@ -8,6 +8,7 @@ import EditProfile from "../Screens/User/EditProfile";
 import OrderHistory from "../Screens/User/OrderHistory";
 import Wishlist from "../Screens/Wishlist/Wishlist";
 import Notifications from "../Screens/User/Notifications";
+import NotificationDetail from "../Screens/User/NotificationDetail";
 import VerifyEmail from "../Screens/User/VerifyEmail";
 import AuthGlobal from "../Context/Store/AuthGlobal";
 
@@ -90,6 +91,14 @@ const UserNavigator = (props) => {
             <Stack.Screen
                 name="Notifications"
                 component={Notifications}
+                options={{
+                    headerShown: false,
+                }}
+            />
+
+            <Stack.Screen
+                name="Notification Detail"
+                component={NotificationDetail}
                 options={{
                     headerShown: false,
                 }}

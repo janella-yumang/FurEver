@@ -8,6 +8,7 @@ const { db } = require('../database');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fieldSize: 10 * 1024 * 1024 } });
+const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 
 // ─── ADMIN: ALL REVIEWS (must be before /:id) ───────────────
 router.get('/reviews/all', (req, res) => {
@@ -178,7 +179,32 @@ router.delete('/:id', (req, res) => {
   }
 });
 
-// ─── REVIEWS: GET FOR PRODUCT ───────────────────────────────
+// ─── SIMILAR PRODUCTS ──────────────────────────────────────
+router.get('/:id/similar', (req, res) => {
+  try {
+    const product = Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+    const categoryId = product.category?.id || product.category;
+    let similar = [];
+    if (categoryId) {
+      similar = Product.find({ categoryIds: [categoryId] })
+        .filter(p => String(p.id) !== String(req.params.id))
+        .slice(0, 8);
+    }
+    if (similar.length < 4) {
+      const extra = Product.find()
+        .filter(p => String(p.id) !== String(req.params.id) && !similar.find(s => s.id === p.id))
+        .slice(0, 8 - similar.length);
+      similar = [...similar, ...extra];
+    }
+    return res.status(200).json(similar);
+  } catch (err) {
+    console.error('Similar products error:', err);
+    return res.status(500).json({ message: 'Failed to fetch similar products.' });
+  }
+});
+
+// ─── REVIEWS: GET FOR PRODUCT ────────────────────────────────────
 router.get('/:id/reviews', (req, res) => {
   try {
     const reviews = Product.getReviews(req.params.id);
@@ -195,7 +221,7 @@ router.post('/:id/reviews', (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ message: 'No auth token.' });
     const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
 
     // Check: has user purchased this product?
     const userId = parseInt(decoded.userId);
@@ -221,11 +247,12 @@ router.post('/:id/reviews', (req, res) => {
       return res.status(403).json({ message: 'You can only review products you have purchased and received.' });
     }
 
-    const { rating, text } = req.body;
+    const { rating, text, image } = req.body;
     if (!rating) return res.status(400).json({ message: 'Rating is required.' });
 
     const review = Product.addReview(productId, {
       userId: userId, name: decoded.name || 'User', rating: parseInt(rating), text: text || '',
+      image: image || '',
     });
     return res.status(201).json({ message: 'Review added.', review });
   } catch (err) {
@@ -238,11 +265,12 @@ router.post('/:id/reviews', (req, res) => {
 // ─── REVIEWS: UPDATE ────────────────────────────────────────
 router.put('/:productId/reviews/:reviewId', (req, res) => {
   try {
-    const { rating, text, status } = req.body;
+    const { rating, text, status, image } = req.body;
     const updates = {};
     if (rating) updates.rating = parseInt(rating);
     if (text !== undefined) updates.text = text;
     if (status) updates.status = status;
+    if (image !== undefined) updates.image = image;
     const review = Product.updateReview(req.params.reviewId, updates, parseInt(req.params.productId));
     if (!review) return res.status(404).json({ message: 'Review not found.' });
     return res.status(200).json({ message: 'Review updated.', review });
