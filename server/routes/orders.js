@@ -1,5 +1,4 @@
 const express = require('express');
-const https = require('https');
 const nodemailer = require('nodemailer');
 const Order = require('../models/Order');
 const User = require('../models/User');
@@ -7,9 +6,9 @@ const Product = require('../models/Product');
 const Notification = require('../models/Notification');
 const Voucher = require('../models/Voucher');
 const { db } = require('../database');
+const { isExpoPushToken, isLikelyFcmToken, sendPushMessages } = require('../pushService');
 
 const router = express.Router();
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 // ─── Email transporter ──────────────────────────────────────
 let transporter = null;
@@ -77,81 +76,8 @@ const sendOrderStatusEmail = async (user, order, status) => {
   } catch (err) { console.error('Order status email error:', err.message); }
 };
 
-function isValidExpoPushToken(token = '') {
-  return /^ExponentPushToken\[[\w-]+\]$/.test(token);
-}
-
-function postJson(url, payload) {
-  if (typeof fetch === 'function') {
-    return fetch(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }).then(async (res) => {
-      let body = null;
-      try { body = await res.json(); } catch (_) {}
-      return { ok: res.ok, body };
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        let body = null;
-        try { body = JSON.parse(data); } catch (_) {}
-        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body });
-      });
-    });
-
-    req.on('error', reject);
-    req.write(JSON.stringify(payload));
-    req.end();
-  });
-}
-
-async function sendExpoPushMessages(messages = []) {
-  if (!messages.length) return { sent: 0, failed: 0, staleTokens: new Set() };
-
-  let sent = 0;
-  let failed = 0;
-  const staleTokens = new Set();
-
-  for (const message of messages) {
-    try {
-      const response = await postJson(EXPO_PUSH_URL, message);
-
-      if (response.ok) {
-        sent += 1;
-        const receipts = response.body?.data;
-        if (Array.isArray(receipts)) {
-          for (const receipt of receipts) {
-            if (receipt?.status === 'error' && receipt?.details?.error === 'DeviceNotRegistered') {
-              if (message.to) staleTokens.add(message.to);
-            }
-          }
-        }
-      } else {
-        failed += 1;
-      }
-    } catch (_) {
-      failed += 1;
-    }
-  }
-
-  return { sent, failed, staleTokens };
+function isSupportedPushToken(token = '') {
+  return isExpoPushToken(token) || isLikelyFcmToken(token);
 }
 
 // ─── GET ALL ORDERS ─────────────────────────────────────────
@@ -310,6 +236,7 @@ router.post('/', async (req, res) => {
 
     // Notify admins
     const admins = User.find().filter(u => u.isAdmin);
+    const adminPushMessages = [];
     for (const admin of admins) {
       Notification.create({
         user: admin.id, type: 'admin_new_order',
@@ -317,6 +244,27 @@ router.post('/', async (req, res) => {
         message: `New order #${order._id} placed${userObj ? ' by ' + userObj.name : ''}.`,
         orderId: order.id,
       });
+
+      if (admin.pushToken && isSupportedPushToken(admin.pushToken)) {
+        adminPushMessages.push({
+          token: admin.pushToken,
+          title: 'New Order',
+          body: `New order #${order._id} placed${userObj ? ' by ' + userObj.name : ''}.`,
+          data: {
+            type: 'admin_new_order',
+            orderId: order.id,
+          },
+        });
+      }
+    }
+
+    const adminPushResult = await sendPushMessages(adminPushMessages);
+    if (adminPushResult.staleTokens.size > 0) {
+      for (const admin of admins) {
+        if (admin.pushToken && adminPushResult.staleTokens.has(admin.pushToken)) {
+          User.update(admin.id, { pushToken: null });
+        }
+      }
     }
 
     return res.status(201).json(order);
@@ -361,11 +309,10 @@ router.put('/:id', async (req, res) => {
           orderId: order.id,
         });
 
-        if (userObj.pushToken && isValidExpoPushToken(userObj.pushToken)) {
-          const pushResult = await sendExpoPushMessages([
+        if (userObj.pushToken && isSupportedPushToken(userObj.pushToken)) {
+          const pushResult = await sendPushMessages([
             {
-              to: userObj.pushToken,
-              sound: 'default',
+              token: userObj.pushToken,
               title: `Order ${status}`,
               body: `Your order #${order._id} status has been updated to ${status}.`,
               data: {
@@ -385,6 +332,7 @@ router.put('/:id', async (req, res) => {
       // Notify admins for delivered orders
       if (status === 'Delivered') {
         const admins = User.find().filter(u => u.isAdmin);
+        const adminPushMessages = [];
         for (const admin of admins) {
           Notification.create({
             user: admin.id, type: 'admin_order_delivered',
@@ -392,6 +340,27 @@ router.put('/:id', async (req, res) => {
             message: `Order #${order._id} has been delivered to ${userObj?.name || 'customer'}.`,
             orderId: order.id,
           });
+
+          if (admin.pushToken && isSupportedPushToken(admin.pushToken)) {
+            adminPushMessages.push({
+              token: admin.pushToken,
+              title: 'Order Delivered',
+              body: `Order #${order._id} has been delivered to ${userObj?.name || 'customer'}.`,
+              data: {
+                type: 'admin_order_delivered',
+                orderId: order.id,
+              },
+            });
+          }
+        }
+
+        const adminPushResult = await sendPushMessages(adminPushMessages);
+        if (adminPushResult.staleTokens.size > 0) {
+          for (const admin of admins) {
+            if (admin.pushToken && adminPushResult.staleTokens.has(admin.pushToken)) {
+              User.update(admin.id, { pushToken: null });
+            }
+          }
         }
 
         // Award loyalty points: 1 point per ₱1 spent (rounded down)

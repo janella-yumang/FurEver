@@ -184,7 +184,7 @@ const ProductContainer = () => {
     ))
 
     return (
-        <Surface width="100%" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <Surface width="100%" style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-start' }}>
 
             {/* Search Bar with Filter Button */}
             <View style={styles.searchRow}>

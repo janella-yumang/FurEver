@@ -26,7 +26,8 @@ const Voucher = {
     }
 
     if (filter.notExpired) {
-      conditions.push('(v.expiresAt IS NULL OR v.expiresAt > ?)');
+      const expiryColumn = filter.userId ? 'v.expiresAt' : 'expiresAt';
+      conditions.push(`(${expiryColumn} IS NULL OR ${expiryColumn} > ?)`);
       params.push(nowISO());
     }
 
@@ -34,7 +35,8 @@ const Voucher = {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
 
-    sql += ' ORDER BY v.createdAt DESC';
+    const createdAtColumn = filter.userId ? 'v.createdAt' : 'createdAt';
+    sql += ` ORDER BY ${createdAtColumn} DESC`;
 
     return db.prepare(sql).all(...params).map((row) => Voucher._parseRow(addId(row)));
   },

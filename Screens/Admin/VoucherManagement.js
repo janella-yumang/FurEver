@@ -10,6 +10,7 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import Toast from 'react-native-toast-message';
+import { jwtDecode } from 'jwt-decode';
 
 const EMPTY_FORM = {
     title: '', message: '', promoCode: '', discountType: 'percent',
@@ -26,35 +27,75 @@ const VoucherManagement = () => {
     const [form, setForm] = useState(EMPTY_FORM);
     const [saving, setSaving] = useState(false);
 
-    const getAuthToken = useCallback(async () => {
+    const getAuthTokenCandidates = useCallback(async () => {
         const secureToken = await SecureStore.getItemAsync('jwt');
-        if (secureToken) return secureToken;
         const asyncToken = await AsyncStorage.getItem('jwt');
-        return asyncToken || '';
+        return [secureToken, asyncToken].filter((token, idx, arr) => !!token && arr.indexOf(token) === idx);
     }, []);
 
-    const loadVouchers = useCallback(() => {
+    const loadVouchers = useCallback(async () => {
         setLoading(true);
-        getAuthToken()
-            .then((t) => {
-                setToken(t);
-                return axios.get(`${baseURL}vouchers`, { headers: { Authorization: `Bearer ${t}` } });
-            })
-            .then((res) => {
-                setVouchers(Array.isArray(res.data) ? res.data : []);
-                setLoading(false);
-            })
-            .catch((err) => {
+        try {
+            const tokenCandidates = await getAuthTokenCandidates();
+            if (!tokenCandidates.length) {
                 setVouchers([]);
-                setLoading(false);
+                return;
+            }
+
+            let lastError = null;
+            for (const candidate of tokenCandidates) {
+                try {
+                    const decoded = jwtDecode(candidate);
+                    if (String(decoded?.userId || '').startsWith('quick-')) {
+                        continue;
+                    }
+                } catch (_decodeErr) {
+                    // Let backend validate malformed/expired tokens.
+                }
+
+                try {
+                    const res = await axios.get(`${baseURL}vouchers`, { headers: { Authorization: `Bearer ${candidate}` } });
+                    setToken(candidate);
+                    setVouchers(Array.isArray(res.data) ? res.data : []);
+                    return;
+                } catch (err) {
+                    lastError = err;
+                }
+            }
+
+            const looksOfflineOnly = tokenCandidates.some((candidate) => {
+                try {
+                    const decoded = jwtDecode(candidate);
+                    return String(decoded?.userId || '').startsWith('quick-');
+                } catch (_decodeErr) {
+                    return false;
+                }
+            });
+
+            if (looksOfflineOnly) {
                 Toast.show({
                     topOffset: 60,
-                    type: 'error',
-                    text1: err?.response?.data?.message || 'Failed to load vouchers.',
-                    text2: 'Please log in with an online admin account.',
+                    type: 'info',
+                    text1: 'Offline admin account detected.',
+                    text2: 'Use online admin login to manage vouchers.',
                 });
+                setVouchers([]);
+                return;
+            }
+
+            throw lastError || new Error('Failed to load vouchers.');
+        } catch (err) {
+            setVouchers([]);
+            Toast.show({
+                topOffset: 60,
+                type: 'error',
+                text1: err?.response?.data?.message || 'Failed to load vouchers.',
+                text2: err?.message || 'Please re-login as admin and try again.',
             });
-    }, [getAuthToken]);
+        } finally {
+            setLoading(false);
+        }
+    }, [getAuthTokenCandidates]);
 
     useFocusEffect(useCallback(() => { loadVouchers(); }, [loadVouchers]));
 

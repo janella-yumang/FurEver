@@ -66,17 +66,31 @@ export async function registerPushTokenForUser(userId, jwtToken) {
       return null;
     }
 
-    const projectId = await getExpoProjectId();
-    const tokenResponse = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined
-    );
+    let pushToken = null;
+    let tokenProvider = null;
 
-    const pushToken = tokenResponse?.data;
+    try {
+      const projectId = await getExpoProjectId();
+      const tokenResponse = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined
+      );
+      pushToken = tokenResponse?.data || null;
+      tokenProvider = 'expo';
+    } catch (_expoTokenErr) {
+      // Fall back to native token only when Expo token is unavailable.
+    }
+
+    if (!pushToken) {
+      const nativeToken = await Notifications.getDevicePushTokenAsync();
+      pushToken = nativeToken?.data || null;
+      tokenProvider = nativeToken?.type === 'android' ? 'fcm' : 'native';
+    }
+
     if (!pushToken) return null;
 
     await axios.put(
       `${baseURL}notifications/user/${userId}/push-token`,
-      { pushToken },
+      { pushToken, tokenProvider },
       { headers: { Authorization: `Bearer ${jwtToken}` } }
     );
 

@@ -1,13 +1,12 @@
 const express = require('express');
-const https = require('https');
 const jwt = require('jsonwebtoken');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Voucher = require('../models/Voucher');
+const { isExpoPushToken, isLikelyFcmToken, sendPushMessages } = require('../pushService');
 
 const router = express.Router();
 
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 
 function requireAdmin(req, res, next) {
@@ -55,82 +54,8 @@ function requireAuth(req, res, next) {
   }
 }
 
-function isValidExpoPushToken(token = '') {
-  return /^ExponentPushToken\[[\w-]+\]$/.test(token);
-}
-
-function postJson(url, payload) {
-  if (typeof fetch === 'function') {
-    return fetch(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }).then(async (res) => {
-      let body = null;
-      try { body = await res.json(); } catch (_) {}
-      return { ok: res.ok, body };
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        let body = null;
-        try { body = JSON.parse(data); } catch (_) {}
-        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body });
-      });
-    });
-
-    req.on('error', reject);
-    req.write(JSON.stringify(payload));
-    req.end();
-  });
-}
-
-async function sendExpoPushMessages(messages = []) {
-  if (!messages.length) return { sent: 0, failed: 0, staleTokens: new Set() };
-
-  let sent = 0;
-  let failed = 0;
-  const staleTokens = new Set();
-
-  for (const message of messages) {
-    try {
-      const response = await postJson(EXPO_PUSH_URL, message);
-
-      if (response.ok) {
-        sent += 1;
-        // Expo returns { data: [{ status, details? }] } per message
-        const receipts = response.body?.data;
-        if (Array.isArray(receipts)) {
-          for (const receipt of receipts) {
-            if (receipt?.status === 'error' && receipt?.details?.error === 'DeviceNotRegistered') {
-              if (message.to) staleTokens.add(message.to);
-            }
-          }
-        }
-      } else {
-        failed += 1;
-      }
-    } catch (_) {
-      failed += 1;
-    }
-  }
-
-  return { sent, failed, staleTokens };
+function isSupportedPushToken(token = '') {
+  return isExpoPushToken(token) || isLikelyFcmToken(token);
 }
 
 // GET notifications for a user
@@ -170,7 +95,7 @@ router.get('/user/:userId/:id', (req, res) => {
   }
 });
 
-// PUT register/update a user's Expo push token
+// PUT register/update a user's push token (FCM or Expo)
 router.put('/user/:userId/push-token', requireAuth, (req, res) => {
   try {
     const userId = parseInt(req.params.userId, 10);
@@ -181,8 +106,8 @@ router.put('/user/:userId/push-token', requireAuth, (req, res) => {
 
     const { pushToken } = req.body || {};
 
-    if (!pushToken || !isValidExpoPushToken(pushToken)) {
-      return res.status(400).json({ message: 'A valid Expo push token is required.' });
+    if (!pushToken || !isSupportedPushToken(pushToken)) {
+      return res.status(400).json({ message: 'A valid push token is required.' });
     }
 
     const user = User.findById(userId);
@@ -216,7 +141,7 @@ router.delete('/user/:userId/push-token', requireAuth, (req, res) => {
   }
 });
 
-// POST broadcast promotion notification to all active non-admin users
+// POST broadcast promotion notification to all active users (including admins)
 router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
   try {
     const {
@@ -271,7 +196,7 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
       createdByUserId: req.user.id,
     });
 
-    const targets = User.find({ isActive: true }).filter((u) => !u.isAdmin);
+    const targets = User.find({ isActive: true });
     if (!targets.length) {
       return res.status(200).json({ message: 'No eligible users found.', voucher, created: 0, push: { sent: 0, failed: 0 } });
     }
@@ -292,10 +217,9 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
       });
       created += 1;
 
-      if (user.pushToken && isValidExpoPushToken(user.pushToken)) {
+      if (user.pushToken && isSupportedPushToken(user.pushToken)) {
         pushMessages.push({
-          to: user.pushToken,
-          sound: 'default',
+          token: user.pushToken,
           title,
           body: message,
           data: {
@@ -312,7 +236,7 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
       }
     }
 
-    const pushResult = await sendExpoPushMessages(pushMessages);
+    const pushResult = await sendPushMessages(pushMessages);
 
     // Remove stale push tokens so they won't be retried in future broadcasts
     if (pushResult.staleTokens.size > 0) {

@@ -16,6 +16,7 @@ const countries = require("../../assets/data/countries.json");
 import AuthGlobal from '../../Context/Store/AuthGlobal'
 import Toast from 'react-native-toast-message'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as SecureStore from 'expo-secure-store'
 import axios from 'axios'
 import baseURL from '../../assets/common/baseurl'
 const Checkout = (props) => {
@@ -32,6 +33,27 @@ const Checkout = (props) => {
     const navigation = useNavigation()
     const cartItems = useSelector(state => state.cartItems)
     const context = useContext(AuthGlobal);
+
+    const getAuthToken = async () => {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) return secureToken;
+        return AsyncStorage.getItem('jwt');
+    };
+
+    const isVoucherCurrentlyAvailable = (voucher) => {
+        if (!voucher || voucher.isActive === false) return false;
+
+        const now = Date.now();
+        const startsAt = voucher.startsAt ? new Date(voucher.startsAt).getTime() : null;
+        const expiresAt = voucher.expiresAt ? new Date(voucher.expiresAt).getTime() : null;
+
+        if (startsAt && startsAt > now) return false;
+        if (expiresAt && expiresAt <= now) return false;
+
+        if ((voucher.maxClaims || 0) > 0 && (voucher.claimedCount || 0) >= (voucher.maxClaims || 0)) return false;
+
+        return true;
+    };
     
     const loadAvailableVouchers = (tokenValue, userId) => {
         axios
@@ -39,8 +61,12 @@ const Checkout = (props) => {
                 headers: { Authorization: `Bearer ${tokenValue}` },
             })
             .then((res) => {
-                const vouchers = Array.isArray(res.data) ? res.data : [];
+                const vouchers = (Array.isArray(res.data) ? res.data : []).filter(isVoucherCurrentlyAvailable);
                 setAvailableVouchers(vouchers);
+                setSelectedVoucherId((currentId) => {
+                    const stillExists = vouchers.some((v) => String(v.id) === String(currentId));
+                    return stillExists ? currentId : '';
+                });
             })
             .catch((err) => {
                 console.log('Error loading vouchers:', err?.response?.data || err?.message || err);
@@ -53,7 +79,7 @@ const Checkout = (props) => {
         if (context.stateUser.isAuthenticated) {
             setUser(context.stateUser.user.userId)
             // Fetch user profile to pre-populate address fields
-            AsyncStorage.getItem('jwt')
+            getAuthToken()
                 .then((token) => {
                     if (token && context.stateUser.user.userId) {
                         loadAvailableVouchers(token, context.stateUser.user.userId);
@@ -111,11 +137,27 @@ const Checkout = (props) => {
         const selectedVoucher = availableVouchers.find((v) => String(v.id) === String(selectedVoucherId));
         let discount = 0;
         if (selectedVoucher) {
-            discount = (subtotal * (selectedVoucher.discountValue || 0)) / 100;
-            if ((selectedVoucher.maxDiscount || 0) > 0) {
-                discount = Math.min(discount, selectedVoucher.maxDiscount);
+            const minimumOrder = Number(selectedVoucher.minOrderAmount || 0);
+            if (minimumOrder > 0 && subtotal < minimumOrder) {
+                Toast.show({
+                    topOffset: 60,
+                    type: 'info',
+                    text1: 'Voucher minimum order not reached',
+                    text2: `Minimum order is $${minimumOrder.toFixed(2)}`,
+                });
+                setSelectedVoucherId('');
+            } else {
+                if ((selectedVoucher.discountType || 'percent') === 'fixed') {
+                    discount = Number(selectedVoucher.discountValue || 0);
+                } else {
+                    discount = (subtotal * (selectedVoucher.discountValue || 0)) / 100;
+                }
+
+                if ((selectedVoucher.maxDiscount || 0) > 0) {
+                    discount = Math.min(discount, selectedVoucher.maxDiscount);
+                }
+                discount = Math.min(discount, subtotal);
             }
-            discount = Math.min(discount, subtotal);
         }
 
         console.log(`  Voucher discount preview: $${discount}`);
@@ -201,7 +243,14 @@ const Checkout = (props) => {
                                     onPress={() => setSelectedVoucherId(isSelected ? '' : String(voucher.id))}
                                 >
                                     <Text style={styles.voucherCode}>{voucher.promoCode}</Text>
-                                    <Text style={styles.voucherMeta}>{voucher.discountValue}% off</Text>
+                                    <Text style={styles.voucherMeta}>
+                                        {(voucher.discountType || 'percent') === 'fixed'
+                                            ? `$${Number(voucher.discountValue || 0).toFixed(2)} off`
+                                            : `${voucher.discountValue}% off`}
+                                    </Text>
+                                    {!!voucher.minOrderAmount && Number(voucher.minOrderAmount) > 0 && (
+                                        <Text style={styles.voucherMeta}>Min order: ${Number(voucher.minOrderAmount).toFixed(2)}</Text>
+                                    )}
                                     {!!voucher.expiresAt && (
                                         <Text style={styles.voucherMeta}>Expires: {new Date(voucher.expiresAt).toLocaleString()}</Text>
                                     )}

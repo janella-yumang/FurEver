@@ -23,12 +23,13 @@ const SearchedProduct = ({ productsFiltered }) => {
     const navigation = useNavigation();
     return (
 
-        <View style={{ width: width, backgroundColor: '#F8FAFC', minHeight: 180 }}>
+        <View style={{ width: width, backgroundColor: '#F8FAFC', flex: 1 }}>
             {productsFiltered.length > 0 ? (
 
                 <Surface style={styles.resultsSurface}>
                     <FlatList
                         data={productsFiltered}
+                        keyboardShouldPersistTaps="handled"
                         renderItem={({ item }) =>
                             <TouchableOpacity
                                 style={styles.resultItem}
@@ -91,6 +92,7 @@ const styles = StyleSheet.create({
     resultsSurface: {
         backgroundColor: '#F8FAFC',
         paddingTop: 8,
+        flexGrow: 0,
     },
     productName: {
         marginLeft: 10,

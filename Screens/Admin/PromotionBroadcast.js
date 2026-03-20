@@ -11,6 +11,7 @@ import {
   Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
 import baseURL from '../../assets/common/baseurl';
@@ -34,6 +35,12 @@ const PromotionBroadcast = () => {
   const [deepLink, setDeepLink] = useState('');
   const [sending, setSending] = useState(false);
   const [lastResult, setLastResult] = useState(null);
+
+  const getAuthToken = async () => {
+    const secureToken = await SecureStore.getItemAsync('jwt');
+    if (secureToken) return secureToken;
+    return AsyncStorage.getItem('jwt');
+  };
 
   const clearForm = () => {
     setTitle('');
@@ -118,7 +125,7 @@ const PromotionBroadcast = () => {
 
     try {
       setSending(true);
-      const token = await AsyncStorage.getItem('jwt');
+      const token = await getAuthToken();
       if (!token) {
         Alert.alert('Not authenticated', 'Please log in again as admin.');
         return;
@@ -183,7 +190,7 @@ const PromotionBroadcast = () => {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.heading}>Promotion Broadcast</Text>
       <Text style={styles.subheading}>
-        Send one promo notification to all active non-admin users.
+        Send one promo notification to all active users (including admins).
       </Text>
 
       <Text style={styles.label}>Title *</Text>

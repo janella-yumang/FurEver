@@ -1,42 +1,81 @@
 import React, { useState, useEffect } from "react";
-import { Image, StyleSheet, Dimensions, View, ScrollView, Text } from "react-native";
+import { Image, StyleSheet, Dimensions, View, ScrollView, Text, TouchableOpacity } from "react-native";
 import Swiper from "react-native-swiper";
+import axios from "axios";
+import baseURL from "../assets/common/baseurl";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 
 var { width } = Dimensions.get("window");
 
 const Banner = () => {
+  const navigation = useNavigation();
   const [bannerData, setBannerData] = useState([]);
   const [failedImages, setFailedImages] = useState({});
 
-  useEffect(() => {
-    setBannerData([
-      {
-        image: "https://images.unsplash.com/photo-1560807707-ace0c72e4a30?w=800&q=80",
-        title: "Best Deal Online",
-        subtitle: "PREMIUM PET PRODUCTS",
-        discount: "UP to 50% OFF"
-      },
-      {
-        image: "https://images.unsplash.com/photo-1514888286974-6c03bf1bbb15?w=800&q=80",
-        title: "Premium Quality",
-        subtitle: "PET SUPPLIES",
-        discount: "UP to 40% OFF"
-      },
-      {
-        image: "https://images.unsplash.com/photo-1520763185298-1b434c919eba?w=800&q=80",
-        title: "Expert Recommendations",
-        subtitle: "SELECTED ITEMS",
-        discount: "UP to 60% OFF"
-      },
-    ]);
+  const formatDiscount = (voucher) => {
+    if ((voucher?.discountType || '').toLowerCase() === 'fixed') {
+      return `SAVE PHP ${Number(voucher?.discountValue || 0).toFixed(0)}`;
+    }
+    return `${Number(voucher?.discountValue || 0).toFixed(0)}% OFF`;
+  };
 
-    return () => {
+  const toBannerItem = (voucher) => ({
+    id: voucher?.id,
+    promoCode: voucher?.promoCode || '',
+    title: voucher?.title || '',
+    message: voucher?.message || '',
+    discountType: voucher?.discountType || 'percent',
+    discountValue: voucher?.discountValue || 0,
+    minOrderAmount: voucher?.minOrderAmount || 0,
+    expiresAt: voucher?.expiresAt || null,
+    image: voucher?.imageUrl || '',
+    subtitle: String(voucher?.title || voucher?.promoCode || 'LIMITED PROMO').toUpperCase(),
+    discount: formatDiscount(voucher),
+  });
+
+  const extractVoucherList = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (Array.isArray(payload?.vouchers)) return payload.vouchers;
+    if (Array.isArray(payload?.results)) return payload.results;
+    return [];
+  };
+
+  const fetchActiveVouchers = async () => {
+    try {
+      const res = await axios.get(`${baseURL}vouchers/public/active`);
+      const vouchers = extractVoucherList(res?.data);
+      const prepared = vouchers
+        .filter((voucher) => !!voucher?.id)
+        .slice(0, 5)
+        .map(toBannerItem);
+      setBannerData(prepared);
+      setFailedImages({});
+    } catch {
       setBannerData([]);
-    };
+      setFailedImages({});
+    }
+  };
+
+  useEffect(() => {
+    fetchActiveVouchers();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchActiveVouchers();
+      return undefined;
+    }, [])
+  );
 
   return (
     <View style={styles.container}>
+      {bannerData.length === 0 ? (
+        <View style={styles.emptyBanner}>
+          <Text style={styles.emptyTitle}>No active promos available</Text>
+          <Text style={styles.emptySub}>New voucher broadcasts will appear here.</Text>
+        </View>
+      ) : (
       <View style={styles.swiper}>
         <Swiper
           style={{ height: width / 2 }}
@@ -50,7 +89,18 @@ const Banner = () => {
           {bannerData.map((item, index) => {
             const hasImageError = !!failedImages[index];
             return (
-              <View key={index} style={styles.bannerSlide}>
+              <TouchableOpacity
+                key={item.id || index}
+                style={styles.bannerSlide}
+                activeOpacity={0.92}
+                onPress={() => {
+                  if (!item.id) return;
+                  navigation.navigate('Voucher Detail', {
+                    voucherId: item.id,
+                    voucher: item,
+                  });
+                }}
+              >
                 {hasImageError ? (
                   <View style={[styles.imageBanner, styles.imageFallback]} />
                 ) : (
@@ -65,12 +115,13 @@ const Banner = () => {
                   <Text style={styles.discountText}>{item.discount}</Text>
                   <Text style={styles.titleText}>{item.subtitle}</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })}
         </Swiper>
         <View style={{ height: 10 }}></View>
       </View>
+      )}
     </View>
   );
 };
@@ -83,6 +134,26 @@ const styles = StyleSheet.create({
   swiper: {
     width: width,
     alignItems: "center",
+  },
+  emptyBanner: {
+    width: width - 20,
+    marginHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E6E8EC',
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+  },
+  emptyTitle: {
+    color: '#2F3440',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  emptySub: {
+    marginTop: 4,
+    color: '#7A8392',
+    fontSize: 13,
   },
   bannerSlide: {
     position: 'relative',
