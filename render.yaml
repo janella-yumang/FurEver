@@ -15,7 +15,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: SQLITE_DB_PATH
-        value: /var/data/furever.db
+        value: /data/furever.db
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -27,10 +27,10 @@ services:
       - key: FIREBASE_SERVICE_ACCOUNT_PATH
         value: /etc/secrets/gsa-key.json
       - key: ENABLE_MIGRATION_IMPORT
-        value: "true"
+        value: "false"
       - key: MIGRATION_IMPORT_SECRET
         sync: false
     disk:
       name: furever-data
-      mountPath: /var/data
+      mountPath: /data
       sizeGB: 1
