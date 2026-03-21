@@ -34,6 +34,9 @@ if (!db) {
 }
 
 console.log(`[db] SQLite path: ${selectedDbPath}`);
+if (process.env.RENDER && !selectedDbPath.startsWith('/var/data/')) {
+  console.warn('[db] Running on non-persistent storage. Mount Render disk at /var/data to keep data after restarts.');
+}
 
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
@@ -368,6 +371,183 @@ function migrateSchemaIfNeeded() {
 }
 
 migrateSchemaIfNeeded();
+
+function ensureStarterCatalogIfEmpty() {
+  try {
+    const totalProducts = db.prepare('SELECT COUNT(*) AS cnt FROM products').get().cnt;
+    if (totalProducts > 0) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const categoryDefs = [
+      { name: 'Pet Food', color: '#FF8C42', icon: 'food-drumstick' },
+      { name: 'Treats', color: '#FFA726', icon: 'cookie' },
+      { name: 'Toys', color: '#66BB6A', icon: 'gamepad-variant' },
+      { name: 'Grooming', color: '#42A5F5', icon: 'content-cut' },
+      { name: 'Health', color: '#EF5350', icon: 'medical-bag' },
+      { name: 'Accessories', color: '#AB47BC', icon: 'collar' },
+      { name: 'Habitat', color: '#8D6E63', icon: 'home' }
+    ];
+
+    const categoryIdsByName = {};
+    for (const category of categoryDefs) {
+      const existing = db.prepare('SELECT id FROM categories WHERE LOWER(name) = LOWER(?) LIMIT 1').get(category.name);
+      if (existing) {
+        categoryIdsByName[category.name] = existing.id;
+        continue;
+      }
+
+      const inserted = db.prepare(`
+        INSERT INTO categories (name, color, icon, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(category.name, category.color, category.icon, now, now);
+      categoryIdsByName[category.name] = inserted.lastInsertRowid;
+    }
+
+    const starterProducts = [
+      {
+        name: 'Chicken & Rice Dog Food',
+        categoryName: 'Pet Food',
+        petType: 'Dog',
+        price: 34.99,
+        countInStock: 80,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=400&q=80',
+        description: 'Premium dry dog food made with real chicken and brown rice.',
+        barcode: 'FE-FOOD-001',
+        variants: ['2kg', '5kg', '10kg'],
+        expirationDate: '2026-08-15'
+      },
+      {
+        name: 'Salmon Pate Cat Food',
+        categoryName: 'Pet Food',
+        petType: 'Cat',
+        price: 27.49,
+        countInStock: 65,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1589941013453-ec89f33b5e95?w=400&q=80',
+        description: 'Grain-free wet cat food with wild-caught salmon.',
+        barcode: 'FE-FOOD-002',
+        variants: ['85g can', '156g can', '12-pack'],
+        expirationDate: '2026-05-20'
+      },
+      {
+        name: 'Crunchy Peanut Butter Dog Treats',
+        categoryName: 'Treats',
+        petType: 'Dog',
+        price: 11.99,
+        countInStock: 120,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1601758228041-f3b2795255f1?w=400&q=80',
+        description: 'All-natural baked dog treats with peanut butter.',
+        barcode: 'FE-TREAT-001',
+        variants: ['100g', '250g', '500g'],
+        expirationDate: '2026-03-10'
+      },
+      {
+        name: 'Interactive Feather Wand Cat Toy',
+        categoryName: 'Toys',
+        petType: 'Cat',
+        price: 8.99,
+        countInStock: 90,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1531209869568-96b8fd6b7e78?w=400&q=80',
+        description: 'Telescoping feather wand toy to stimulate your cat\'s hunting instincts.',
+        barcode: 'FE-TOY-001',
+        variants: [],
+        expirationDate: ''
+      },
+      {
+        name: 'Oatmeal & Aloe Dog Shampoo',
+        categoryName: 'Grooming',
+        petType: 'Dog',
+        price: 16.99,
+        countInStock: 45,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=400&q=80',
+        description: 'Gentle, soap-free shampoo for sensitive skin.',
+        barcode: 'FE-GROOM-001',
+        variants: ['250ml', '500ml', '1L'],
+        expirationDate: ''
+      },
+      {
+        name: 'Multivitamin Chews for Cats',
+        categoryName: 'Health',
+        petType: 'Cat',
+        price: 19.99,
+        countInStock: 55,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1574158622682-e40e69881006?w=400&q=80',
+        description: 'Daily multivitamin soft chews supporting immune health.',
+        barcode: 'FE-HEALTH-001',
+        variants: ['30 chews', '60 chews', '120 chews'],
+        expirationDate: '2026-11-30'
+      },
+      {
+        name: 'Adjustable Nylon Dog Harness',
+        categoryName: 'Accessories',
+        petType: 'Dog',
+        price: 22.99,
+        countInStock: 35,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1570649889742-f049cd451bba?w=400&q=80',
+        description: 'No-pull dog harness with breathable mesh padding.',
+        barcode: 'FE-ACC-001',
+        variants: ['XS', 'S', 'M', 'L', 'XL'],
+        expirationDate: ''
+      },
+      {
+        name: 'Wooden Hideout for Small Pets',
+        categoryName: 'Habitat',
+        petType: 'Hamster',
+        price: 14.49,
+        countInStock: 40,
+        lowStockThreshold: 10,
+        image: 'https://images.unsplash.com/photo-1425082661507-3f9c4cba2aae?w=400&q=80',
+        description: 'Natural pine wood hideout for hamsters, gerbils, and mice.',
+        barcode: 'FE-HAB-001',
+        variants: ['Small', 'Medium'],
+        expirationDate: ''
+      }
+    ];
+
+    const insertProduct = db.prepare(`
+      INSERT INTO products (
+        name, category, petType, price, countInStock, lowStockThreshold,
+        image, description, barcode, variants, expirationDate,
+        rating, numReviews, createdAt, updatedAt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const product of starterProducts) {
+      insertProduct.run(
+        product.name,
+        categoryIdsByName[product.categoryName] || null,
+        product.petType,
+        product.price,
+        product.countInStock,
+        product.lowStockThreshold,
+        product.image,
+        product.description,
+        product.barcode,
+        JSON.stringify(product.variants || []),
+        product.expirationDate || '',
+        0,
+        0,
+        now,
+        now
+      );
+    }
+
+    console.log(`✓ Starter catalog seeded: ${starterProducts.length} products`);
+  } catch (error) {
+    console.error('✗ Starter catalog seed failed:', error.message);
+  }
+}
+
+ensureStarterCatalogIfEmpty();
 
 // ─── Helper: add _id alias to match Mongoose-style responses ─
 function addId(row) {
