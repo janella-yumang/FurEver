@@ -10,6 +10,31 @@ const requestedDbPath = process.env.SQLITE_DB_PATH
 
 const bundledDbPath = path.resolve(__dirname, 'furever.db');
 const persistentTargetPath = requestedDbPath || (process.env.RENDER ? '/var/data/furever.db' : null);
+const forceBundledSync = /^(1|true|yes)$/i.test(String(process.env.SQLITE_FORCE_BUNDLED_SNAPSHOT || ''));
+
+function getDbStats(dbPath) {
+  if (!dbPath || !fs.existsSync(dbPath)) return null;
+
+  const tempDb = new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    const getCount = (tableName) => {
+      try {
+        return tempDb.prepare(`SELECT COUNT(*) AS cnt FROM ${tableName}`).get().cnt;
+      } catch {
+        return 0;
+      }
+    };
+
+    return {
+      products: getCount('products'),
+      vouchers: getCount('vouchers'),
+      users: getCount('users'),
+      orders: getCount('orders')
+    };
+  } finally {
+    tempDb.close();
+  }
+}
 
 // If persistent DB is empty on first boot, bootstrap it from the bundled DB snapshot.
 if (persistentTargetPath) {
@@ -18,6 +43,28 @@ if (persistentTargetPath) {
     if (!fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
       fs.copyFileSync(bundledDbPath, persistentTargetPath);
       console.log(`[db] Seeded persistent DB from bundled snapshot: ${persistentTargetPath}`);
+    } else if (fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
+      const persistentStats = getDbStats(persistentTargetPath);
+      const bundledStats = getDbStats(bundledDbPath);
+
+      const looksLikeStarterData =
+        persistentStats &&
+        persistentStats.products > 0 &&
+        persistentStats.products <= 10 &&
+        persistentStats.vouchers <= 2;
+
+      const bundledHasRicherData =
+        persistentStats &&
+        bundledStats &&
+        bundledStats.products > persistentStats.products &&
+        bundledStats.vouchers > persistentStats.vouchers;
+
+      if (forceBundledSync || (looksLikeStarterData && bundledHasRicherData)) {
+        const backupPath = `${persistentTargetPath}.bak-${Date.now()}`;
+        fs.copyFileSync(persistentTargetPath, backupPath);
+        fs.copyFileSync(bundledDbPath, persistentTargetPath);
+        console.log(`[db] Replaced persistent DB with bundled snapshot (backup at ${backupPath})`);
+      }
     }
   } catch (error) {
     console.warn(`[db] Could not seed persistent DB at ${persistentTargetPath}: ${error.message}`);
