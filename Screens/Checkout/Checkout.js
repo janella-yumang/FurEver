@@ -53,6 +53,8 @@ const Checkout = (props) => {
         if ((voucher.maxClaims || 0) > 0 && (voucher.claimedCount || 0) >= (voucher.maxClaims || 0)) return false;
 
         return true;
+    };
+
     const loadAvailableVouchers = (tokenValue, userId) => {
         axios
             .get(`${baseURL}notifications/promotions/vouchers/available/${userId}`, {
@@ -61,8 +63,12 @@ const Checkout = (props) => {
             .then((res) => {
                 const vouchers = (Array.isArray(res.data) ? res.data : []).filter(isVoucherCurrentlyAvailable);
                 setAvailableVouchers(vouchers);
+                setSelectedVoucherId((currentId) => {
+                    if (!currentId) return '';
+                    const stillExists = vouchers.some((voucher) => String(voucher.id) === String(currentId));
                     return stillExists ? currentId : '';
                 });
+            })
             .catch((err) => {
                 console.log('Error loading vouchers:', err?.response?.data || err?.message || err);
                 setAvailableVouchers([]);
@@ -90,8 +96,9 @@ const Checkout = (props) => {
                         })
                         .catch((err) => {
                             console.log('Error loading user profile:', err);
-                            if (ctxUser.phone) setPhone(ctxUser.phone);
-                            if (ctxUser.shippingAddress) setAddress(ctxUser.shippingAddress);
+                            const contextUser = context?.stateUser?.user || {};
+                            if (contextUser.phone) setPhone(contextUser.phone);
+                            if (contextUser.shippingAddress) setAddress(contextUser.shippingAddress);
                         });
                 })
                 .catch((err) => console.log('Error getting token:', err));
@@ -103,8 +110,10 @@ const Checkout = (props) => {
                 text1: "Please Login to Checkout",
                 text2: ""
             });
+        }
+
         return () => {
-              setOrderItems([]);
+            setOrderItems([]);
         }
     }, [])
 
