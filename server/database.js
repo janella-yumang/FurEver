@@ -3,31 +3,42 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 
 // One-time copy from secret file to persistent disk (for Render free plan)
+const DATA_DIR = process.env.PERSISTENT_DATA_DIR || '/data';
+const DB_FILENAME = 'furever.db';
+const persistentDbPath = require('path').join(DATA_DIR, DB_FILENAME);
 if (
   process.env.NODE_ENV === 'production' &&
   fs.existsSync('/etc/secrets/furever.db') &&
-  !fs.existsSync('/var/data/furever.db')
+  !fs.existsSync(persistentDbPath)
 ) {
-  fs.copyFileSync('/etc/secrets/furever.db', '/var/data/furever.db');
-  console.log('✓ Copied furever.db from secret to persistent disk');
+  try {
+    fs.copyFileSync('/etc/secrets/furever.db', persistentDbPath);
+    console.log('✓ Copied furever.db from secret to persistent disk');
+  } catch (err) {
+    console.error('Failed to copy furever.db to persistent disk:', err);
+  }
 }
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
 
+
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const DATA_DIR = process.env.PERSISTENT_DATA_DIR || '/data'; // '/data' is the default Render persistent disk mount
 const requestedDbPath = String(process.env.SQLITE_DB_PATH || '').trim();
-const defaultDbPath = IS_PRODUCTION ? path.join(DATA_DIR, 'furever.db') : path.resolve(__dirname, 'furever.db');
+const defaultDbPath = IS_PRODUCTION ? persistentDbPath : path.resolve(__dirname, DB_FILENAME);
 const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
 
 if (IS_PRODUCTION) {
-  try {
-    fs.mkdirSync(path.dirname(selectedDbPath), { recursive: true });
-  } catch (err) {
-    if (err.code !== 'EEXIST') {
-      console.error('Failed to create persistent data directory:', err);
-      process.exit(1);
+  // Only attempt to create the parent directory if it's not the root persistent disk
+  const parentDir = path.dirname(selectedDbPath);
+  if (parentDir !== DATA_DIR) {
+    try {
+      fs.mkdirSync(parentDir, { recursive: true });
+    } catch (err) {
+      if (err.code !== 'EEXIST') {
+        console.error('Failed to create persistent data subdirectory:', err);
+        process.exit(1);
+      }
     }
   }
 }
