@@ -19,6 +19,7 @@ const ordersRoutes = require('./routes/orders');
 const notificationsRoutes = require('./routes/notifications');
 const analyticsRoutes = require('./routes/analytics');
 const vouchersRoutes = require('./routes/vouchers');
+const migrationRoutes = require('./routes/migration');
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use('/api/v1/orders', ordersRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/vouchers', vouchersRoutes);
+app.use('/api/v1/migration', migrationRoutes);
 
 const port = process.env.PORT || 4000;
 app.listen(port, '0.0.0.0', () => {

@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "migrate:remote": "node migrate-local-sqlite-to-remote.js",
+    "migrate:full": "node migrate-full-sqlite-to-remote.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

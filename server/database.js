@@ -44,7 +44,7 @@ if (persistentTargetPath) {
     if (!fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
       fs.copyFileSync(bundledDbPath, persistentTargetPath);
       console.log(`[db] Seeded persistent DB from bundled snapshot: ${persistentTargetPath}`);
-    } else if (!IS_PRODUCTION && fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
+    } else if (fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
       const persistentStats = getDbStats(persistentTargetPath);
       const bundledStats = getDbStats(bundledDbPath);
 
@@ -60,7 +60,9 @@ if (persistentTargetPath) {
         bundledStats.products > persistentStats.products &&
         bundledStats.vouchers > persistentStats.vouchers;
 
-      if (forceBundledSync || (looksLikeStarterData && bundledHasRicherData)) {
+      const shouldAutoSyncInDev = !IS_PRODUCTION && looksLikeStarterData && bundledHasRicherData;
+
+      if (forceBundledSync || shouldAutoSyncInDev) {
         const backupPath = `${persistentTargetPath}.bak-${Date.now()}`;
         fs.copyFileSync(persistentTargetPath, backupPath);
         fs.copyFileSync(bundledDbPath, persistentTargetPath);
