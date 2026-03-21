@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-const FALLBACK_MOBILE_HOST = '192.168.8.143';
+const FALLBACK_MOBILE_HOST = String(process.env.EXPO_PUBLIC_API_FALLBACK_HOST || '').trim();
 
 const ensureTrailingSlash = (url = '') => {
     const withApiPath = /\/api\/v1\/?$/i.test(url) ? url : `${url.replace(/\/+$/, '')}/api/v1`;
@@ -22,7 +22,7 @@ if (Platform.OS === 'web') {
         console.log('API base URL (web):', resolved);
     }
 } else {
-    // For real devices, Expo host URI is usually the most reliable LAN source.
+    // For real devices, prefer explicit env URL (e.g. Render) when provided.
     const hostUri =
         Constants?.expoConfig?.hostUri ||
         Constants?.manifest?.debuggerHost ||
@@ -32,15 +32,18 @@ if (Platform.OS === 'web') {
     const detectedHost = String(hostUri).split(':')[0];
     const detectedHostIsIpv4 = isIpv4(detectedHost);
 
-    if (detectedHostIsIpv4) {
-        resolved = ensureTrailingSlash(`http://${detectedHost}:4000`);
-        console.log('API base URL (mobile detected):', resolved);
-    } else if (fromEnv) {
+    if (fromEnv) {
         resolved = ensureTrailingSlash(fromEnv);
         console.log('API base URL (mobile env):', resolved);
-    } else {
+    } else if (detectedHostIsIpv4) {
+        resolved = ensureTrailingSlash(`http://${detectedHost}:4000`);
+        console.log('API base URL (mobile detected):', resolved);
+    } else if (FALLBACK_MOBILE_HOST) {
         resolved = ensureTrailingSlash(`http://${FALLBACK_MOBILE_HOST}:4000`);
         console.log('API base URL (mobile fallback):', resolved);
+    } else {
+        resolved = ensureTrailingSlash('http://localhost:4000');
+        console.log('API base URL (mobile fallback localhost):', resolved);
     }
 }
 

@@ -13,24 +13,10 @@ import { Platform } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchProducts } from '../../Redux/Actions/productActions';
+import Toast from "react-native-toast-message";
 
 const PET_TYPES = ['All', 'Dog', 'Cat', 'Fish', 'Bird', 'Rabbit', 'Hamster'];
 const PRODUCT_CATEGORIES = ['All', 'Pet Food', 'Treats', 'Toys', 'Grooming', 'Health', 'Accessories', 'Habitat'];
-
-const mockProducts = [
-    { _id: "1", name: "Dog Food Premium", price: 29.99, description: "High-quality dog food with real chicken. Ingredients: chicken, rice, vegetables. For adult dogs.", category: "Pet Food", petType: "Dog", image: "https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=300&q=80", countInStock: 50, rating: 5, variants: ['2kg', '5kg', '10kg'], expirationDate: '2026-06-30' },
-    { _id: "2", name: "Cat Food Deluxe", price: 24.99, description: "Premium cat food with salmon. Rich in omega-3 and vitamins.", category: "Pet Food", petType: "Cat", image: "https://images.unsplash.com/photo-1589941013453-ec89f33b5e95?w=300&q=80", countInStock: 45, rating: 4, variants: ['1kg', '3kg'], expirationDate: '2026-05-15' },
-    { _id: "3", name: "Bird Seed Mix", price: 19.99, description: "Nutritious bird seed blend for parakeets and finches.", category: "Pet Food", petType: "Bird", image: "https://images.unsplash.com/photo-1552728089-57bdde30beb3?w=300&q=80", countInStock: 60, rating: 4, variants: ['500g', '1kg'], expirationDate: '2026-12-01' },
-    { _id: "4", name: "Fish Food Flakes", price: 14.99, description: "Premium tropical fish food flakes. Suitable for all freshwater fish.", category: "Pet Food", petType: "Fish", image: "https://images.unsplash.com/photo-1546696418-0dffeefbbe9b?w=300&q=80", countInStock: 70, rating: 3, variants: ['50g', '100g'] },
-    { _id: "5", name: "Dog Collar Adjustable", price: 15.99, description: "Adjustable nylon collar for dogs. Reflective strip for safety. Size guide: S(25-35cm), M(35-50cm), L(50-65cm).", category: "Accessories", petType: "Dog", image: "https://images.unsplash.com/photo-1570649889742-f049cd451bba?w=300&q=80", countInStock: 40, rating: 5, variants: ['Small', 'Medium', 'Large'] },
-    { _id: "6", name: "Cat Toy Mouse", price: 9.99, description: "Interactive cat toy mouse with catnip. Safe, non-toxic materials.", category: "Toys", petType: "Cat", image: "https://images.unsplash.com/photo-1531209869568-96b8fd6b7e78?w=300&q=80", countInStock: 35, rating: 4 },
-    { _id: "7", name: "Dog Shampoo Natural", price: 18.99, description: "Natural grooming shampoo for dogs. Ingredients: aloe vera, oatmeal, coconut oil. Gentle on skin.", category: "Grooming", petType: "Dog", image: "https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=300&q=80", countInStock: 25, rating: 5, variants: ['250ml', '500ml'] },
-    { _id: "8", name: "Cat Health Supplement", price: 22.99, description: "Vitamins and minerals for cats. Supports immune system and coat health.", category: "Health", petType: "Cat", image: "https://images.unsplash.com/photo-1574158622682-e40e69881006?w=300&q=80", countInStock: 30, rating: 4, expirationDate: '2026-09-01' },
-    { _id: "9", name: "Dog Treats Chicken", price: 12.99, description: "Chicken jerky treats for dogs. No artificial preservatives. Ingredients: 100% chicken breast.", category: "Treats", petType: "Dog", image: "https://images.unsplash.com/photo-1601758228041-f3b2795255f1?w=300&q=80", countInStock: 55, rating: 5, variants: ['100g', '250g'], expirationDate: '2026-03-20' },
-    { _id: "10", name: "Fish Tank Filter", price: 34.99, description: "Aquarium water filtration system. Suitable for tanks up to 100L.", category: "Habitat", petType: "Fish", image: "https://images.unsplash.com/photo-1520301255226-bf5f144451c1?w=300&q=80", countInStock: 20, rating: 4 },
-    { _id: "11", name: "Bird Cage Deluxe", price: 89.99, description: "Spacious bird cage with accessories. Dimensions: 60x40x80cm.", category: "Habitat", petType: "Bird", image: "https://images.unsplash.com/photo-1506220926022-cc5c12acdb35?w=300&q=80", countInStock: 10, rating: 5, variants: ['Medium', 'Large'] },
-    { _id: "12", name: "Hamster Wheel", price: 11.99, description: "Silent spinning wheel for hamsters. Safe enclosed design.", category: "Toys", petType: "Hamster", image: "https://images.unsplash.com/photo-1425082661507-3f9c4cba2aae?w=300&q=80", countInStock: 40, rating: 3, variants: ['Small', 'Medium'] },
-];
 
 const mockCategories = [
     { _id: "1", name: "Pet Food" },
@@ -149,43 +135,39 @@ const ProductContainer = () => {
                 setFocus(false);
                 setActive(-1);
                 setLoading(true);
-                if (Platform.OS === 'web') {
-                    if (isMounted) {
-                        setProductsFiltered(mockProducts);
-                        setProductsCtg(mockProducts);
-                        setInitialState(mockProducts);
-                        setCategories(mockCategories);
+                dispatch(fetchProducts())
+                    .then((data) => {
+                        if (!isMounted) return;
+                        const productData = data || [];
+                        setProductsFiltered(productData);
+                        setProductsCtg(productData);
+                        setInitialState(productData);
                         setLoading(false);
-                    }
-                } else {
-                    dispatch(fetchProducts())
-                        .then((data) => {
-                            if (!isMounted) return;
-                            const productData = data || [];
-                            setProductsFiltered(productData);
-                            setProductsCtg(productData);
-                            setInitialState(productData);
-                            setLoading(false)
-                        })
-                        .catch(() => {
-                            if (!isMounted) return;
-                            setProductsFiltered(mockProducts);
-                            setProductsCtg(mockProducts);
-                            setInitialState(mockProducts);
-                            setLoading(false);
-                        })
+                    })
+                    .catch(() => {
+                        if (!isMounted) return;
+                        setProductsFiltered([]);
+                        setProductsCtg([]);
+                        setInitialState([]);
+                        setLoading(false);
+                        Toast.show({
+                            topOffset: 60,
+                            type: 'error',
+                            text1: 'Products unavailable',
+                            text2: 'Could not load products from backend.',
+                        });
+                    });
 
-                    axios
-                        .get(`${baseURL}categories`)
-                        .then((res) => {
-                            if (!isMounted) return;
-                            setCategories(res.data)
-                        })
-                        .catch(() => {
-                            if (!isMounted) return;
-                            setCategories(mockCategories);
-                        })
-                }
+                axios
+                    .get(`${baseURL}categories`)
+                    .then((res) => {
+                        if (!isMounted) return;
+                        setCategories(res.data)
+                    })
+                    .catch(() => {
+                        if (!isMounted) return;
+                        setCategories([]);
+                    })
 
                 return () => {
                     isMounted = false;
@@ -275,7 +257,7 @@ const ProductContainer = () => {
                     {productsCtg.length > 0 ? (
                         <View>
                             {/* Organize products by category */}
-                            {(categories.length > 0 ? categories : mockCategories).map((category) => {
+                            {categories.map((category) => {
                                 const catName = category.name;
                                 const categoryProducts = productsByCategory[catName] || [];
                                 if (categoryProducts.length === 0) return null;

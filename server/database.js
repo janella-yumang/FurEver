@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const requestedDbPath = process.env.SQLITE_DB_PATH
   ? path.resolve(process.env.SQLITE_DB_PATH)
   : null;
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
 const bundledDbPath = path.resolve(__dirname, 'furever.db');
 const persistentTargetPath = requestedDbPath || (process.env.RENDER ? '/var/data/furever.db' : null);
@@ -43,7 +44,7 @@ if (persistentTargetPath) {
     if (!fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
       fs.copyFileSync(bundledDbPath, persistentTargetPath);
       console.log(`[db] Seeded persistent DB from bundled snapshot: ${persistentTargetPath}`);
-    } else if (fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
+    } else if (!IS_PRODUCTION && fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
       const persistentStats = getDbStats(persistentTargetPath);
       const bundledStats = getDbStats(bundledDbPath);
 
@@ -437,6 +438,11 @@ function migrateSchemaIfNeeded() {
 migrateSchemaIfNeeded();
 
 function ensureBaselineData() {
+  if (IS_PRODUCTION) {
+    console.log('✓ Baseline seed skipped in production');
+    return;
+  }
+
   try {
     const now = new Date().toISOString();
     const categoryDefs = [
