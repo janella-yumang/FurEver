@@ -8,7 +8,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_USE_COMMUNITY_AUTOLINKING": "1",
-        "NODE_ENV": "development"
+        "NODE_ENV": "development",
+        "EXPO_PUBLIC_API_URL": "https://furever-1-lekw.onrender.com"
       }
     },
     "preview": {
@@ -18,7 +19,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_USE_COMMUNITY_AUTOLINKING": "1",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://furever-1-lekw.onrender.com"
       }
     },
     "production": {
@@ -27,7 +29,8 @@
       },
       "env": {
         "EXPO_USE_COMMUNITY_AUTOLINKING": "1",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://furever-1-lekw.onrender.com"
       }
     }
   }
