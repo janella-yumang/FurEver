@@ -26,6 +26,10 @@ services:
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT_PATH
         value: /etc/secrets/gsa-key.json
+      - key: ENABLE_MIGRATION_IMPORT
+        value: "true"
+      - key: MIGRATION_IMPORT_SECRET
+        sync: false
     disk:
       name: furever-data
       mountPath: /var/data
