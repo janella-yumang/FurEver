@@ -8,11 +8,27 @@ const requestedDbPath = process.env.SQLITE_DB_PATH
   ? path.resolve(process.env.SQLITE_DB_PATH)
   : null;
 
+const bundledDbPath = path.resolve(__dirname, 'furever.db');
+const persistentTargetPath = requestedDbPath || (process.env.RENDER ? '/var/data/furever.db' : null);
+
+// If persistent DB is empty on first boot, bootstrap it from the bundled DB snapshot.
+if (persistentTargetPath) {
+  try {
+    fs.mkdirSync(path.dirname(persistentTargetPath), { recursive: true });
+    if (!fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
+      fs.copyFileSync(bundledDbPath, persistentTargetPath);
+      console.log(`[db] Seeded persistent DB from bundled snapshot: ${persistentTargetPath}`);
+    }
+  } catch (error) {
+    console.warn(`[db] Could not seed persistent DB at ${persistentTargetPath}: ${error.message}`);
+  }
+}
+
 const dbCandidates = [
-  requestedDbPath,
-  process.env.RENDER ? '/var/data/furever.db' : null,
+  persistentTargetPath,
+  bundledDbPath,
   '/tmp/furever.db',
-  path.resolve(__dirname, 'furever.db')
+  requestedDbPath
 ].filter(Boolean);
 
 let db;
