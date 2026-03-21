@@ -1,107 +1,29 @@
 const Database = require('better-sqlite3');
+const fs = require('fs');
+
+// One-time copy from secret file to persistent disk (for Render free plan)
+if (
+  process.env.NODE_ENV === 'production' &&
+  fs.existsSync('/etc/secrets/furever.db') &&
+  !fs.existsSync('/var/data/furever.db')
+) {
+  fs.copyFileSync('/etc/secrets/furever.db', '/var/data/furever.db');
+  console.log('✓ Copied furever.db from secret to persistent disk');
+}
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
-// Allow overriding SQLite location in production (e.g. Render persistent disk).
-const requestedDbPath = process.env.SQLITE_DB_PATH
-  ? path.resolve(process.env.SQLITE_DB_PATH)
-  : null;
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const requestedDbPath = String(process.env.SQLITE_DB_PATH || '').trim();
+const defaultDbPath = IS_PRODUCTION ? '/var/data/furever.db' : path.resolve(__dirname, 'furever.db');
+const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
 
-const bundledDbPath = path.resolve(__dirname, 'furever.db');
-const persistentTargetPath = requestedDbPath || (process.env.RENDER ? '/var/data/furever.db' : null);
-const forceBundledSync = /^(1|true|yes)$/i.test(String(process.env.SQLITE_FORCE_BUNDLED_SNAPSHOT || ''));
-
-function getDbStats(dbPath) {
-  if (!dbPath || !fs.existsSync(dbPath)) return null;
-
-  const tempDb = new Database(dbPath, { readonly: true, fileMustExist: true });
-  try {
-    const getCount = (tableName) => {
-      try {
-        return tempDb.prepare(`SELECT COUNT(*) AS cnt FROM ${tableName}`).get().cnt;
-      } catch {
-        return 0;
-      }
-    };
-
-    return {
-      products: getCount('products'),
-      vouchers: getCount('vouchers'),
-      users: getCount('users'),
-      orders: getCount('orders')
-    };
-  } finally {
-    tempDb.close();
-  }
-}
-
-// If persistent DB is empty on first boot, bootstrap it from the bundled DB snapshot.
-if (persistentTargetPath) {
-  try {
-    fs.mkdirSync(path.dirname(persistentTargetPath), { recursive: true });
-    if (!fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
-      fs.copyFileSync(bundledDbPath, persistentTargetPath);
-      console.log(`[db] Seeded persistent DB from bundled snapshot: ${persistentTargetPath}`);
-    } else if (fs.existsSync(persistentTargetPath) && fs.existsSync(bundledDbPath)) {
-      const persistentStats = getDbStats(persistentTargetPath);
-      const bundledStats = getDbStats(bundledDbPath);
-
-      const looksLikeStarterData =
-        persistentStats &&
-        persistentStats.products > 0 &&
-        persistentStats.products <= 10 &&
-        persistentStats.vouchers <= 2;
-
-      const bundledHasRicherData =
-        persistentStats &&
-        bundledStats &&
-        bundledStats.products > persistentStats.products &&
-        bundledStats.vouchers > persistentStats.vouchers;
-
-      const shouldAutoSyncInDev = !IS_PRODUCTION && looksLikeStarterData && bundledHasRicherData;
-
-      if (forceBundledSync || shouldAutoSyncInDev) {
-        const backupPath = `${persistentTargetPath}.bak-${Date.now()}`;
-        fs.copyFileSync(persistentTargetPath, backupPath);
-        fs.copyFileSync(bundledDbPath, persistentTargetPath);
-        console.log(`[db] Replaced persistent DB with bundled snapshot (backup at ${backupPath})`);
-      }
-    }
-  } catch (error) {
-    console.warn(`[db] Could not seed persistent DB at ${persistentTargetPath}: ${error.message}`);
-  }
-}
-
-const dbCandidates = [
-  persistentTargetPath,
-  bundledDbPath,
-  '/tmp/furever.db',
-  requestedDbPath
-].filter(Boolean);
-
-let db;
-let selectedDbPath = null;
-let lastDbError = null;
-
-for (const candidatePath of dbCandidates) {
-  try {
-    fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
-    db = new Database(candidatePath);
-    selectedDbPath = candidatePath;
-    break;
-  } catch (error) {
-    lastDbError = error;
-  }
-}
-
-if (!db) {
-  throw lastDbError;
-}
+fs.mkdirSync(path.dirname(selectedDbPath), { recursive: true });
+const db = new Database(selectedDbPath);
 
 console.log(`[db] SQLite path: ${selectedDbPath}`);
-if (process.env.RENDER && !selectedDbPath.startsWith('/var/data/')) {
+if (IS_PRODUCTION && !selectedDbPath.startsWith('/var/data/')) {
   console.warn('[db] Running on non-persistent storage. Mount Render disk at /var/data to keep data after restarts.');
 }
 
