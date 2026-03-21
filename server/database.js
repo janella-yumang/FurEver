@@ -3,7 +3,6 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 
 // One-time copy from secret file to persistent disk (for Render free plan)
-const DATA_DIR = process.env.PERSISTENT_DATA_DIR || '/data';
 const DB_FILENAME = 'furever.db';
 const persistentDbPath = require('path').join(DATA_DIR, DB_FILENAME);
 if (
