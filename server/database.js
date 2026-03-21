@@ -1,3 +1,4 @@
+
 const Database = require('better-sqlite3');
 const fs = require('fs');
 
@@ -11,7 +12,6 @@ if (
   console.log('✓ Copied furever.db from secret to persistent disk');
 }
 const path = require('path');
-const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
