@@ -18,6 +18,9 @@
       "supportsTablet": true
     },
     "android": {
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/furever_logo.png",
         "backgroundColor": "#ffffff"
@@ -39,9 +42,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "215b6ee9-290a-4e48-8f29-f7ff763eafd1"
+        "projectId": "86b9ade3-593f-4931-a07d-3180d5a06cd2"
       }
     },
-    "owner": "jannellayumang"
+    "owner": "erp15"
   }
 }

@@ -25,6 +25,8 @@ async function loadNotificationsModule() {
     handleNotification: async () => ({
       // Show alerts in foreground for easier verification during development.
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),
@@ -64,6 +66,7 @@ export async function registerPushTokenForUser(userId, jwtToken) {
     }
 
     if (finalStatus !== 'granted') {
+      console.log('Push registration skipped: notification permission not granted.');
       return null;
     }
 
@@ -75,6 +78,9 @@ export async function registerPushTokenForUser(userId, jwtToken) {
       const nativeToken = await Notifications.getDevicePushTokenAsync();
       pushToken = nativeToken?.data || null;
       tokenProvider = nativeToken?.type === 'android' ? 'fcm' : 'native';
+      if (pushToken) {
+        console.log(`Push token acquired (${tokenProvider})`);
+      }
     }
 
     if (!pushToken) {
@@ -85,6 +91,9 @@ export async function registerPushTokenForUser(userId, jwtToken) {
         );
         pushToken = tokenResponse?.data || null;
         tokenProvider = 'expo';
+        if (pushToken) {
+          console.log('Push token acquired (expo)');
+        }
       } catch (_expoTokenErr) {
         // Fall back to native token when Expo token is unavailable.
       }
@@ -94,6 +103,9 @@ export async function registerPushTokenForUser(userId, jwtToken) {
       const nativeToken = await Notifications.getDevicePushTokenAsync();
       pushToken = nativeToken?.data || null;
       tokenProvider = nativeToken?.type === 'android' ? 'fcm' : 'native';
+      if (pushToken) {
+        console.log(`Push token acquired (${tokenProvider})`);
+      }
     }
 
     if (!pushToken) return null;
@@ -103,6 +115,8 @@ export async function registerPushTokenForUser(userId, jwtToken) {
       { pushToken, tokenProvider },
       { headers: { Authorization: `Bearer ${jwtToken}` } }
     );
+
+    console.log(`Push token registered on backend (${tokenProvider})`);
 
     return pushToken;
   } catch (error) {

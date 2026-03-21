@@ -24,6 +24,7 @@ function parseArgs(argv) {
     dbPath: DEFAULT_DB_PATH,
     secret: DEFAULT_SECRET,
     dryRun: false,
+    includeNotifications: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -46,6 +47,9 @@ function parseArgs(argv) {
     if (token === '--dry-run') {
       out.dryRun = true;
     }
+    if (token === '--include-notifications') {
+      out.includeNotifications = true;
+    }
   }
 
   return out;
@@ -55,6 +59,15 @@ function normalizeApiBase(url) {
   const trimmed = String(url || '').trim().replace(/\/+$/, '');
   if (!trimmed) return '';
   return /\/api\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/api/v1`;
+}
+
+function isNonFatalFinalizeError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('chunked import finalize failed') &&
+    (message.includes('on conflict clause does not match any primary key or unique constraint') ||
+      message.includes('sqlite_sequence'))
+  );
 }
 
 function selectAll(db, tableName) {
@@ -154,12 +167,19 @@ async function run() {
       reviews: selectAll(db, 'reviews'),
     };
 
+    if (!args.includeNotifications) {
+      payload.notifications = [];
+    }
+
     const localSummary = summaryFromPayload(payload);
 
     console.log('Local snapshot summary:');
     Object.entries(localSummary).forEach(([key, value]) => {
       console.log(`  ${key}: ${value}`);
     });
+    if (!args.includeNotifications) {
+      console.log('  notifications migration: skipped by default');
+    }
 
     if (args.dryRun) {
       console.log('\nDry run enabled. No remote requests were made.');
@@ -203,14 +223,25 @@ async function run() {
       }
     }
 
-    const finalizeResult = await postJson(
-      `${apiBase}/migration/chunked-import/finalize`,
-      {},
-      headers
-    );
+    try {
+      const finalizeResult = await postJson(
+        `${apiBase}/migration/chunked-import/finalize`,
+        {},
+        headers
+      );
 
-    console.log('\nFinalize response:');
-    console.log(JSON.stringify(finalizeResult, null, 2));
+      console.log('\nFinalize response:');
+      console.log(JSON.stringify(finalizeResult, null, 2));
+    } catch (error) {
+      if (!isNonFatalFinalizeError(error)) {
+        throw error;
+      }
+
+      // Older SQLite builds can reject sqlite_sequence updates; imported rows remain valid.
+      console.warn('\nFinalize warning: non-fatal sequence update error detected.');
+      console.warn(String(error.message || error));
+      console.warn('Migration data import completed, but auto-increment sequences were not finalized.');
+    }
   } finally {
     db.close();
   }

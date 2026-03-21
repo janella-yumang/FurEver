@@ -55,7 +55,7 @@ function requireAuth(req, res, next) {
 }
 
 function isSupportedPushToken(token = '') {
-  return isLikelyFcmToken(token);
+  return isLikelyFcmToken(token) || isExpoPushToken(token);
 }
 
 function maskToken(token = '') {
@@ -218,12 +218,6 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
     const targetById = new Map(targets.map((user) => [String(user.id), user]));
 
     for (const user of targets) {
-      if (user.pushToken && isExpoPushToken(user.pushToken)) {
-        // Remove legacy Expo tokens now that push delivery is FCM-only.
-        User.update(user.id, { pushToken: null });
-        user.pushToken = null;
-      }
-
       Notification.create({
         user: user.id,
         type: 'promo_discount',

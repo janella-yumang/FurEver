@@ -101,19 +101,12 @@ const sendOrderStatusEmail = async (user, order, status) => {
 };
 
 function isSupportedPushToken(token = '') {
-  return isLikelyFcmToken(token);
+  return isLikelyFcmToken(token) || isExpoPushToken(token);
 }
 
 function resolveFcmTokenForUser(user) {
   if (!user || !user.pushToken) return null;
-
-  if (isExpoPushToken(user.pushToken)) {
-    // Clear legacy Expo tokens so only FCM tokens remain for order updates.
-    User.update(user.id, { pushToken: null });
-    return null;
-  }
-
-  return isLikelyFcmToken(user.pushToken) ? user.pushToken : null;
+  return isSupportedPushToken(user.pushToken) ? user.pushToken : null;
 }
 
 // ─── GET ALL ORDERS ─────────────────────────────────────────

@@ -305,17 +305,37 @@ function clearAllTables() {
 }
 
 function finalizeSequences() {
+  const tableSqlStmt = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?");
   const tx = db.transaction(() => {
-    const upsertSeq = db.prepare(`
-      INSERT INTO sqlite_sequence (name, seq)
-      VALUES (?, ?)
-      ON CONFLICT(name) DO UPDATE SET seq = excluded.seq
-    `);
+    let updateSeq = null;
+    let insertSeq = null;
+
+    try {
+      updateSeq = db.prepare('UPDATE sqlite_sequence SET seq = ? WHERE name = ?');
+      insertSeq = db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)');
+    } catch (err) {
+      console.warn('[migration] sqlite_sequence is not writable in this environment. Skipping sequence finalize.');
+      return;
+    }
 
     for (const table of TABLE_ORDER) {
       const seq = Number(importState.maxIds[table]) || 0;
-      if (seq > 0) {
-        upsertSeq.run(table, seq);
+      if (seq <= 0) {
+        continue;
+      }
+
+      const tableSql = String(tableSqlStmt.get(table)?.sql || '').toUpperCase();
+      if (!tableSql.includes('AUTOINCREMENT')) {
+        continue;
+      }
+
+      try {
+        const updated = updateSeq.run(seq, table);
+        if ((updated?.changes || 0) === 0) {
+          insertSeq.run(table, seq);
+        }
+      } catch (err) {
+        console.warn(`[migration] Could not update sqlite_sequence for table ${table}: ${err.message}`);
       }
     }
   });
