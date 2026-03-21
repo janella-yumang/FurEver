@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
 
 // Allow overriding SQLite location in production (e.g. Render persistent disk).
 const requestedDbPath = process.env.SQLITE_DB_PATH
@@ -372,13 +373,8 @@ function migrateSchemaIfNeeded() {
 
 migrateSchemaIfNeeded();
 
-function ensureStarterCatalogIfEmpty() {
+function ensureBaselineData() {
   try {
-    const totalProducts = db.prepare('SELECT COUNT(*) AS cnt FROM products').get().cnt;
-    if (totalProducts > 0) {
-      return;
-    }
-
     const now = new Date().toISOString();
     const categoryDefs = [
       { name: 'Pet Food', color: '#FF8C42', icon: 'food-drumstick' },
@@ -405,149 +401,213 @@ function ensureStarterCatalogIfEmpty() {
       categoryIdsByName[category.name] = inserted.lastInsertRowid;
     }
 
-    const starterProducts = [
-      {
-        name: 'Chicken & Rice Dog Food',
-        categoryName: 'Pet Food',
-        petType: 'Dog',
-        price: 34.99,
-        countInStock: 80,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=400&q=80',
-        description: 'Premium dry dog food made with real chicken and brown rice.',
-        barcode: 'FE-FOOD-001',
-        variants: ['2kg', '5kg', '10kg'],
-        expirationDate: '2026-08-15'
-      },
-      {
-        name: 'Salmon Pate Cat Food',
-        categoryName: 'Pet Food',
-        petType: 'Cat',
-        price: 27.49,
-        countInStock: 65,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1589941013453-ec89f33b5e95?w=400&q=80',
-        description: 'Grain-free wet cat food with wild-caught salmon.',
-        barcode: 'FE-FOOD-002',
-        variants: ['85g can', '156g can', '12-pack'],
-        expirationDate: '2026-05-20'
-      },
-      {
-        name: 'Crunchy Peanut Butter Dog Treats',
-        categoryName: 'Treats',
-        petType: 'Dog',
-        price: 11.99,
-        countInStock: 120,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1601758228041-f3b2795255f1?w=400&q=80',
-        description: 'All-natural baked dog treats with peanut butter.',
-        barcode: 'FE-TREAT-001',
-        variants: ['100g', '250g', '500g'],
-        expirationDate: '2026-03-10'
-      },
-      {
-        name: 'Interactive Feather Wand Cat Toy',
-        categoryName: 'Toys',
-        petType: 'Cat',
-        price: 8.99,
-        countInStock: 90,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1531209869568-96b8fd6b7e78?w=400&q=80',
-        description: 'Telescoping feather wand toy to stimulate your cat\'s hunting instincts.',
-        barcode: 'FE-TOY-001',
-        variants: [],
-        expirationDate: ''
-      },
-      {
-        name: 'Oatmeal & Aloe Dog Shampoo',
-        categoryName: 'Grooming',
-        petType: 'Dog',
-        price: 16.99,
-        countInStock: 45,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=400&q=80',
-        description: 'Gentle, soap-free shampoo for sensitive skin.',
-        barcode: 'FE-GROOM-001',
-        variants: ['250ml', '500ml', '1L'],
-        expirationDate: ''
-      },
-      {
-        name: 'Multivitamin Chews for Cats',
-        categoryName: 'Health',
-        petType: 'Cat',
-        price: 19.99,
-        countInStock: 55,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1574158622682-e40e69881006?w=400&q=80',
-        description: 'Daily multivitamin soft chews supporting immune health.',
-        barcode: 'FE-HEALTH-001',
-        variants: ['30 chews', '60 chews', '120 chews'],
-        expirationDate: '2026-11-30'
-      },
-      {
-        name: 'Adjustable Nylon Dog Harness',
-        categoryName: 'Accessories',
-        petType: 'Dog',
-        price: 22.99,
-        countInStock: 35,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1570649889742-f049cd451bba?w=400&q=80',
-        description: 'No-pull dog harness with breathable mesh padding.',
-        barcode: 'FE-ACC-001',
-        variants: ['XS', 'S', 'M', 'L', 'XL'],
-        expirationDate: ''
-      },
-      {
-        name: 'Wooden Hideout for Small Pets',
-        categoryName: 'Habitat',
-        petType: 'Hamster',
-        price: 14.49,
-        countInStock: 40,
-        lowStockThreshold: 10,
-        image: 'https://images.unsplash.com/photo-1425082661507-3f9c4cba2aae?w=400&q=80',
-        description: 'Natural pine wood hideout for hamsters, gerbils, and mice.',
-        barcode: 'FE-HAB-001',
-        variants: ['Small', 'Medium'],
-        expirationDate: ''
+    const totalProducts = db.prepare('SELECT COUNT(*) AS cnt FROM products').get().cnt;
+    if (totalProducts === 0) {
+      const starterProducts = [
+        {
+          name: 'Chicken & Rice Dog Food', categoryName: 'Pet Food', petType: 'Dog', price: 34.99,
+          countInStock: 80, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=400&q=80',
+          description: 'Premium dry dog food made with real chicken and brown rice.', barcode: 'FE-FOOD-001',
+          variants: ['2kg', '5kg', '10kg'], expirationDate: '2026-08-15'
+        },
+        {
+          name: 'Salmon Pate Cat Food', categoryName: 'Pet Food', petType: 'Cat', price: 27.49,
+          countInStock: 65, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1589941013453-ec89f33b5e95?w=400&q=80',
+          description: 'Grain-free wet cat food with wild-caught salmon.', barcode: 'FE-FOOD-002',
+          variants: ['85g can', '156g can', '12-pack'], expirationDate: '2026-05-20'
+        },
+        {
+          name: 'Crunchy Peanut Butter Dog Treats', categoryName: 'Treats', petType: 'Dog', price: 11.99,
+          countInStock: 120, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1601758228041-f3b2795255f1?w=400&q=80',
+          description: 'All-natural baked dog treats with peanut butter.', barcode: 'FE-TREAT-001',
+          variants: ['100g', '250g', '500g'], expirationDate: '2026-03-10'
+        },
+        {
+          name: 'Interactive Feather Wand Cat Toy', categoryName: 'Toys', petType: 'Cat', price: 8.99,
+          countInStock: 90, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1531209869568-96b8fd6b7e78?w=400&q=80',
+          description: 'Telescoping feather wand toy to stimulate your cat\'s hunting instincts.', barcode: 'FE-TOY-001',
+          variants: [], expirationDate: ''
+        },
+        {
+          name: 'Oatmeal & Aloe Dog Shampoo', categoryName: 'Grooming', petType: 'Dog', price: 16.99,
+          countInStock: 45, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=400&q=80',
+          description: 'Gentle, soap-free shampoo for sensitive skin.', barcode: 'FE-GROOM-001',
+          variants: ['250ml', '500ml', '1L'], expirationDate: ''
+        },
+        {
+          name: 'Multivitamin Chews for Cats', categoryName: 'Health', petType: 'Cat', price: 19.99,
+          countInStock: 55, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1574158622682-e40e69881006?w=400&q=80',
+          description: 'Daily multivitamin soft chews supporting immune health.', barcode: 'FE-HEALTH-001',
+          variants: ['30 chews', '60 chews', '120 chews'], expirationDate: '2026-11-30'
+        },
+        {
+          name: 'Adjustable Nylon Dog Harness', categoryName: 'Accessories', petType: 'Dog', price: 22.99,
+          countInStock: 35, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1570649889742-f049cd451bba?w=400&q=80',
+          description: 'No-pull dog harness with breathable mesh padding.', barcode: 'FE-ACC-001',
+          variants: ['XS', 'S', 'M', 'L', 'XL'], expirationDate: ''
+        },
+        {
+          name: 'Tropical Fish Food Pellets', categoryName: 'Pet Food', petType: 'Fish', price: 9.99,
+          countInStock: 100, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1546696418-0dffeefbbe9b?w=400&q=80',
+          description: 'Slow-sinking micro pellets for tropical freshwater fish.', barcode: 'FE-FOOD-003',
+          variants: ['50g', '100g', '200g'], expirationDate: '2027-01-15'
+        },
+        {
+          name: 'Wooden Hideout for Small Pets', categoryName: 'Habitat', petType: 'Hamster', price: 14.49,
+          countInStock: 40, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1425082661507-3f9c4cba2aae?w=400&q=80',
+          description: 'Natural pine wood hideout for hamsters, gerbils, and mice.', barcode: 'FE-HAB-001',
+          variants: ['Small', 'Medium'], expirationDate: ''
+        },
+        {
+          name: 'Colorful Rope Perch for Birds', categoryName: 'Accessories', petType: 'Bird', price: 12.49,
+          countInStock: 50, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1552728089-57bdde30beb3?w=400&q=80',
+          description: 'Flexible cotton rope perch in vibrant colors.', barcode: 'FE-ACC-002',
+          variants: ['Small (30cm)', 'Large (60cm)'], expirationDate: ''
+        }
+      ];
+
+      const insertProduct = db.prepare(`
+        INSERT INTO products (
+          name, category, petType, price, countInStock, lowStockThreshold,
+          image, description, barcode, variants, expirationDate,
+          rating, numReviews, createdAt, updatedAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const product of starterProducts) {
+        insertProduct.run(
+          product.name,
+          categoryIdsByName[product.categoryName] || null,
+          product.petType,
+          product.price,
+          product.countInStock,
+          product.lowStockThreshold,
+          product.image,
+          product.description,
+          product.barcode,
+          JSON.stringify(product.variants || []),
+          product.expirationDate || '',
+          0,
+          0,
+          now,
+          now
+        );
       }
-    ];
 
-    const insertProduct = db.prepare(`
-      INSERT INTO products (
-        name, category, petType, price, countInStock, lowStockThreshold,
-        image, description, barcode, variants, expirationDate,
-        rating, numReviews, createdAt, updatedAt
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+      console.log(`✓ Starter catalog seeded: ${starterProducts.length} products`);
+    }
 
-    for (const product of starterProducts) {
-      insertProduct.run(
-        product.name,
-        categoryIdsByName[product.categoryName] || null,
-        product.petType,
-        product.price,
-        product.countInStock,
-        product.lowStockThreshold,
-        product.image,
-        product.description,
-        product.barcode,
-        JSON.stringify(product.variants || []),
-        product.expirationDate || '',
+    const totalUsers = db.prepare('SELECT COUNT(*) AS cnt FROM users').get().cnt;
+    if (totalUsers === 0) {
+      const defaultPassword = bcrypt.hashSync('password123', 10);
+      const insertUser = db.prepare(`
+        INSERT INTO users (
+          name, email, password, phone, isAdmin, role, shippingAddress,
+          preferredPets, image, isActive, emailVerified, createdAt, updatedAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const users = [
+        {
+          name: 'Jannella Yumang', email: 'admin@furever.com', phone: '09181234567',
+          isAdmin: 1, role: 'admin', shippingAddress: '123 FurEver HQ, Quezon City, Metro Manila, 1100',
+          preferredPets: []
+        },
+        {
+          name: 'Emma Pascua', email: 'user@furever.com', phone: '09171234567',
+          isAdmin: 0, role: 'customer', shippingAddress: '456 Pet Lover Ave, Makati City, Metro Manila, 1200',
+          preferredPets: ['Dog', 'Cat']
+        },
+        {
+          name: 'Juan Dela Cruz', email: 'juan@furever.com', phone: '09191234567',
+          isAdmin: 0, role: 'customer', shippingAddress: '789 Sampaguita St, Cebu City, Cebu, 6000',
+          preferredPets: ['Fish', 'Bird']
+        }
+      ];
+
+      for (const user of users) {
+        insertUser.run(
+          user.name,
+          user.email,
+          defaultPassword,
+          user.phone,
+          user.isAdmin,
+          user.role,
+          user.shippingAddress,
+          JSON.stringify(user.preferredPets || []),
+          '',
+          1,
+          1,
+          now,
+          now
+        );
+      }
+
+      console.log('✓ Default users seeded (admin + 2 customers)');
+    }
+
+    const totalVouchers = db.prepare('SELECT COUNT(*) AS cnt FROM vouchers').get().cnt;
+    if (totalVouchers === 0) {
+      const admin = db.prepare('SELECT id FROM users WHERE isAdmin = 1 ORDER BY id ASC LIMIT 1').get();
+      const adminId = admin ? admin.id : null;
+
+      const insertVoucher = db.prepare(`
+        INSERT INTO vouchers (
+          title, message, imageUrl, promoCode, discountType, discountValue,
+          maxDiscount, minOrderAmount, startsAt, expiresAt, isActive,
+          maxClaims, claimedCount, createdByUserId, createdAt, updatedAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      insertVoucher.run(
+        'Welcome 10% Off',
+        'Use this voucher on your first purchase.',
+        '',
+        'WELCOME10',
+        'percent',
+        10,
+        150,
+        0,
+        now,
+        '2027-12-31T23:59:59.000Z',
+        1,
         0,
         0,
+        adminId,
         now,
         now
       );
-    }
 
-    console.log(`✓ Starter catalog seeded: ${starterProducts.length} products`);
+      insertVoucher.run(
+        'Free Shipping Boost',
+        'Get a fixed discount to offset shipping for minimum spend.',
+        '',
+        'SHIP50',
+        'fixed',
+        50,
+        50,
+        499,
+        now,
+        '2027-12-31T23:59:59.000Z',
+        1,
+        0,
+        0,
+        adminId,
+        now,
+        now
+      );
+
+      console.log('✓ Starter vouchers seeded: 2 active vouchers');
+    }
   } catch (error) {
-    console.error('✗ Starter catalog seed failed:', error.message);
+    console.error('✗ Baseline data seed failed:', error.message);
   }
 }
 
-ensureStarterCatalogIfEmpty();
+ensureBaselineData();
 
 // ─── Helper: add _id alias to match Mongoose-style responses ─
 function addId(row) {

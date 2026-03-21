@@ -113,7 +113,7 @@ router.post('/', requireAdmin, (req, res) => {
       maxDiscount, minOrderAmount, startsAt, expiresAt,
       isActive: isActive !== false,
       maxClaims: maxClaims || 0,
-      createdByUserId: req.adminUser.userId,
+      createdByUserId: req.adminUser.id || req.adminUser._id || null,
     });
     return res.status(201).json(voucher);
   } catch (err) {
