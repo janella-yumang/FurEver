@@ -438,11 +438,6 @@ function migrateSchemaIfNeeded() {
 migrateSchemaIfNeeded();
 
 function ensureBaselineData() {
-  if (IS_PRODUCTION) {
-    console.log('✓ Baseline seed skipped in production');
-    return;
-  }
-
   try {
     const now = new Date().toISOString();
     const categoryDefs = [
