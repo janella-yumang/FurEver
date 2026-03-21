@@ -14,17 +14,29 @@ if (
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
+
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const DATA_DIR = process.env.PERSISTENT_DATA_DIR || '/data'; // '/data' is the default Render persistent disk mount
 const requestedDbPath = String(process.env.SQLITE_DB_PATH || '').trim();
-const defaultDbPath = IS_PRODUCTION ? '/var/data/furever.db' : path.resolve(__dirname, 'furever.db');
+const defaultDbPath = IS_PRODUCTION ? path.join(DATA_DIR, 'furever.db') : path.resolve(__dirname, 'furever.db');
 const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
 
-fs.mkdirSync(path.dirname(selectedDbPath), { recursive: true });
+if (IS_PRODUCTION) {
+  try {
+    fs.mkdirSync(path.dirname(selectedDbPath), { recursive: true });
+  } catch (err) {
+    if (err.code !== 'EEXIST') {
+      console.error('Failed to create persistent data directory:', err);
+      process.exit(1);
+    }
+  }
+}
 const db = new Database(selectedDbPath);
 
+
 console.log(`[db] SQLite path: ${selectedDbPath}`);
-if (IS_PRODUCTION && !selectedDbPath.startsWith('/var/data/')) {
-  console.warn('[db] Running on non-persistent storage. Mount Render disk at /var/data to keep data after restarts.');
+if (IS_PRODUCTION && !selectedDbPath.startsWith(DATA_DIR)) {
+  console.warn(`[db] Running on non-persistent storage. Mount Render disk at ${DATA_DIR} to keep data after restarts.`);
 }
 
 // Enable WAL mode for better concurrent read performance
