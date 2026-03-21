@@ -1,12 +1,39 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 // Allow overriding SQLite location in production (e.g. Render persistent disk).
-const DB_PATH = process.env.SQLITE_DB_PATH
+const requestedDbPath = process.env.SQLITE_DB_PATH
   ? path.resolve(process.env.SQLITE_DB_PATH)
-  : path.resolve(__dirname, 'furever.db');
+  : null;
 
-const db = new Database(DB_PATH);
+const dbCandidates = [
+  requestedDbPath,
+  process.env.RENDER ? '/var/data/furever.db' : null,
+  '/tmp/furever.db',
+  path.resolve(__dirname, 'furever.db')
+].filter(Boolean);
+
+let db;
+let selectedDbPath = null;
+let lastDbError = null;
+
+for (const candidatePath of dbCandidates) {
+  try {
+    fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+    db = new Database(candidatePath);
+    selectedDbPath = candidatePath;
+    break;
+  } catch (error) {
+    lastDbError = error;
+  }
+}
+
+if (!db) {
+  throw lastDbError;
+}
+
+console.log(`[db] SQLite path: ${selectedDbPath}`);
 
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
