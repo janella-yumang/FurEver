@@ -4,7 +4,10 @@ const fs = require('fs');
 
 // One-time copy from secret file to persistent disk (for Render free plan)
 const DB_FILENAME = 'furever.db';
-const persistentDbPath = require('path').join(DATA_DIR, DB_FILENAME);
+const path = require('path');
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const DATA_DIR = IS_PRODUCTION ? '/data' : path.resolve(__dirname);
+const persistentDbPath = path.join(DATA_DIR, DB_FILENAME);
 if (
   process.env.NODE_ENV === 'production' &&
   fs.existsSync('/etc/secrets/furever.db') &&
@@ -17,12 +20,9 @@ if (
     console.error('Failed to copy furever.db to persistent disk:', err);
   }
 }
-const path = require('path');
+
 const bcrypt = require('bcryptjs');
 
-
-
-const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 const requestedDbPath = String(process.env.SQLITE_DB_PATH || '').trim();
 const defaultDbPath = IS_PRODUCTION ? persistentDbPath : path.resolve(__dirname, DB_FILENAME);
 const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
