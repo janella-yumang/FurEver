@@ -23,6 +23,7 @@ async function loadNotificationsModule() {
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
+      // Show alerts in foreground for easier verification during development.
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
@@ -68,16 +69,25 @@ export async function registerPushTokenForUser(userId, jwtToken) {
 
     let pushToken = null;
     let tokenProvider = null;
+    const preferNativeToken = Platform.OS === 'android';
 
-    try {
-      const projectId = await getExpoProjectId();
-      const tokenResponse = await Notifications.getExpoPushTokenAsync(
-        projectId ? { projectId } : undefined
-      );
-      pushToken = tokenResponse?.data || null;
-      tokenProvider = 'expo';
-    } catch (_expoTokenErr) {
-      // Fall back to native token only when Expo token is unavailable.
+    if (preferNativeToken) {
+      const nativeToken = await Notifications.getDevicePushTokenAsync();
+      pushToken = nativeToken?.data || null;
+      tokenProvider = nativeToken?.type === 'android' ? 'fcm' : 'native';
+    }
+
+    if (!pushToken) {
+      try {
+        const projectId = await getExpoProjectId();
+        const tokenResponse = await Notifications.getExpoPushTokenAsync(
+          projectId ? { projectId } : undefined
+        );
+        pushToken = tokenResponse?.data || null;
+        tokenProvider = 'expo';
+      } catch (_expoTokenErr) {
+        // Fall back to native token when Expo token is unavailable.
+      }
     }
 
     if (!pushToken) {

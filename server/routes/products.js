@@ -265,17 +265,32 @@ router.post('/:id/reviews', (req, res) => {
 // ─── REVIEWS: UPDATE ────────────────────────────────────────
 router.put('/:productId/reviews/:reviewId', (req, res) => {
   try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ message: 'No auth token.' });
+    const token = authHeader.replace('Bearer ', '');
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const existingReview = Product.findReview(req.params.reviewId);
+    if (!existingReview) return res.status(404).json({ message: 'Review not found.' });
+
+    const requesterId = String(decoded.userId || '');
+    const reviewOwnerId = String(existingReview.userId || '');
+    const isAdmin = !!decoded.isAdmin;
+    if (!isAdmin && requesterId !== reviewOwnerId) {
+      return res.status(403).json({ message: 'You can only update your own review.' });
+    }
+
     const { rating, text, status, image } = req.body;
     const updates = {};
     if (rating) updates.rating = parseInt(rating);
     if (text !== undefined) updates.text = text;
-    if (status) updates.status = status;
+    if (status && isAdmin) updates.status = status;
     if (image !== undefined) updates.image = image;
     const review = Product.updateReview(req.params.reviewId, updates, parseInt(req.params.productId));
-    if (!review) return res.status(404).json({ message: 'Review not found.' });
     return res.status(200).json({ message: 'Review updated.', review });
   } catch (err) {
     console.error('Update review error:', err);
+    if (err.name === 'JsonWebTokenError') return res.status(401).json({ message: 'Invalid token.' });
     return res.status(500).json({ message: 'Failed to update review.' });
   }
 });
@@ -283,11 +298,26 @@ router.put('/:productId/reviews/:reviewId', (req, res) => {
 // ─── REVIEWS: DELETE ────────────────────────────────────────
 router.delete('/:productId/reviews/:reviewId', (req, res) => {
   try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ message: 'No auth token.' });
+    const token = authHeader.replace('Bearer ', '');
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const existingReview = Product.findReview(req.params.reviewId);
+    if (!existingReview) return res.status(404).json({ message: 'Review not found.' });
+
+    const requesterId = String(decoded.userId || '');
+    const reviewOwnerId = String(existingReview.userId || '');
+    const isAdmin = !!decoded.isAdmin;
+    if (!isAdmin && requesterId !== reviewOwnerId) {
+      return res.status(403).json({ message: 'You can only delete your own review.' });
+    }
+
     const deleted = Product.deleteReview(req.params.reviewId, parseInt(req.params.productId));
-    if (!deleted) return res.status(404).json({ message: 'Review not found.' });
     return res.status(200).json({ message: 'Review deleted.' });
   } catch (err) {
     console.error('Delete review error:', err);
+    if (err.name === 'JsonWebTokenError') return res.status(401).json({ message: 'Invalid token.' });
     return res.status(500).json({ message: 'Failed to delete review.' });
   }
 });

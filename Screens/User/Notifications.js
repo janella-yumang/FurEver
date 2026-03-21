@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
@@ -40,6 +41,12 @@ const Notifications = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const getAuthToken = async () => {
+    const secureToken = await SecureStore.getItemAsync('jwt');
+    if (secureToken) return secureToken;
+    return AsyncStorage.getItem('jwt');
+  };
+
   const fetchNotifications = useCallback(async () => {
     if (!context.stateUser.isAuthenticated) {
       navigation.navigate('Login');
@@ -47,49 +54,56 @@ const Notifications = () => {
     }
     try {
       const userId = context.stateUser.user?.userId || context.stateUser.user?.sub;
-      const token = await AsyncStorage.getItem('jwt');
+      const token = await getAuthToken();
       const res = await axios.get(`${baseURL}notifications/user/${userId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setNotifications(res.data);
-    } catch (err) {
-      console.log('Fetch notifications error:', err.message);
+    } catch (_err) {
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [context.stateUser]);
+  }, [context.stateUser, navigation]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchNotifications();
+      let isActive = true;
+      const timeoutId = setTimeout(() => {
+        if (isActive) {
+          fetchNotifications();
+        }
+      }, 200);
+
+      return () => {
+        isActive = false;
+        clearTimeout(timeoutId);
+      };
     }, [fetchNotifications])
   );
 
   const markAsRead = async (id) => {
     try {
-      const token = await AsyncStorage.getItem('jwt');
+      const token = await getAuthToken();
       await axios.put(`${baseURL}notifications/${id}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setNotifications((prev) =>
         prev.map((n) => (n._id === id ? { ...n, read: true } : n))
       );
-    } catch (err) {
-      console.log('Mark read error:', err.message);
+    } catch (_err) {
     }
   };
 
   const markAllAsRead = async () => {
     try {
       const userId = context.stateUser.user?.userId || context.stateUser.user?.sub;
-      const token = await AsyncStorage.getItem('jwt');
+      const token = await getAuthToken();
       await axios.put(`${baseURL}notifications/user/${userId}/mark-all-read`, {}, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    } catch (err) {
-      console.log('Mark all read error:', err.message);
+    } catch (_err) {
     }
   };
 
@@ -107,6 +121,19 @@ const Notifications = () => {
 
   const handlePress = (notif) => {
     if (!notif.read) markAsRead(notif._id);
+
+    if (notif.type === 'promo_discount') {
+      navigation.navigate('Home', {
+        screen: 'Voucher Detail',
+        params: {
+          voucherId: notif.voucherId || null,
+          promoCode: notif.promoCode || null,
+          source: 'notification-list',
+          notificationType: notif.type,
+        },
+      });
+      return;
+    }
 
     navigation.navigate('Notification Detail', {
       notificationId: notif._id,

@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: furever-api
+    env: node
+    rootDir: server
+    region: virginia
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        sync: false
+      - key: SQLITE_DB_PATH
+        value: /var/data/furever.db
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_PATH
+        value: /etc/secrets/gsa-key.json
+    disk:
+      name: furever-data
+      mountPath: /var/data
+      sizeGB: 1

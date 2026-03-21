@@ -7,7 +7,8 @@ import {
     ActivityIndicator,
     Alert,
     Dimensions,
-    Modal
+    Modal,
+    Platform
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -38,6 +39,21 @@ const AddressMapPicker = ({ visible, onClose, onSelectLocation, initialRegion })
                 return;
             }
 
+            const servicesEnabled = await Location.hasServicesEnabledAsync();
+            if (!servicesEnabled) {
+                Alert.alert(
+                    'Location Service Off',
+                    'Please enable device location services for accurate map positioning.'
+                );
+                if (Platform.OS === 'android') {
+                    try {
+                        await Location.enableNetworkProviderAsync();
+                    } catch (_) {
+                        // Keep fallback behavior below if user rejects provider dialog.
+                    }
+                }
+            }
+
             // Get current location
             let currentLocation = await Location.getCurrentPositionAsync({
                 accuracy: Location.Accuracy.Balanced,
@@ -59,8 +75,32 @@ const AddressMapPicker = ({ visible, onClose, onSelectLocation, initialRegion })
             setLoading(false);
         } catch (error) {
             console.error('Error getting location:', error);
+
+            try {
+                const lastKnown = await Location.getLastKnownPositionAsync({
+                    maxAge: 1000 * 60 * 5,
+                    requiredAccuracy: 200,
+                });
+
+                if (lastKnown?.coords?.latitude && lastKnown?.coords?.longitude) {
+                    const fallbackCoords = {
+                        latitude: lastKnown.coords.latitude,
+                        longitude: lastKnown.coords.longitude,
+                        latitudeDelta: 0.01,
+                        longitudeDelta: 0.01,
+                    };
+                    setLocation(fallbackCoords);
+                    setSelectedCoordinates(fallbackCoords);
+                    await reverseGeocode(fallbackCoords.latitude, fallbackCoords.longitude);
+                    setLoading(false);
+                    return;
+                }
+            } catch (lastKnownError) {
+                console.error('Error getting last known location:', lastKnownError);
+            }
+
             Alert.alert('Error', 'Failed to get current location. Using default location.');
-            
+
             // Use a default location (Philippines)
             const defaultCoords = {
                 latitude: 14.5995,
@@ -70,6 +110,7 @@ const AddressMapPicker = ({ visible, onClose, onSelectLocation, initialRegion })
             };
             setLocation(defaultCoords);
             setSelectedCoordinates(defaultCoords);
+            await reverseGeocode(defaultCoords.latitude, defaultCoords.longitude);
             setLoading(false);
         }
     };

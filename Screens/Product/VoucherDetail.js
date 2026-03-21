@@ -31,6 +31,7 @@ const VoucherDetail = () => {
 
   const routeVoucher = route.params?.voucher || null;
   const voucherId = route.params?.voucherId || routeVoucher?.id;
+  const promoCodeParam = String(route.params?.promoCode || routeVoucher?.promoCode || '').trim().toUpperCase();
 
   const [voucher, setVoucher] = useState(routeVoucher);
   const [loading, setLoading] = useState(!routeVoucher);
@@ -45,35 +46,48 @@ const VoucherDetail = () => {
   useEffect(() => {
     let mounted = true;
 
-    if (!voucherId) {
+    if (routeVoucher?.id && String(routeVoucher.id) === String(voucherId || routeVoucher.id)) {
       setLoading(false);
       return undefined;
     }
 
-    if (routeVoucher?.id && String(routeVoucher.id) === String(voucherId)) {
+    if (!voucherId && !promoCodeParam) {
       setLoading(false);
       return undefined;
     }
 
     setLoading(true);
-    axios
-      .get(`${baseURL}vouchers/public/active/${voucherId}`)
-      .then((res) => {
+    const fetchVoucher = async () => {
+      try {
+        if (voucherId) {
+          const res = await axios.get(`${baseURL}vouchers/public/active/${voucherId}`);
+          if (!mounted) return;
+          setVoucher(res.data || null);
+          return;
+        }
+
+        const res = await axios.get(`${baseURL}vouchers/public/active`);
         if (!mounted) return;
-        setVoucher(res.data || null);
-      })
-      .catch(() => {
+
+        const list = Array.isArray(res.data) ? res.data : [];
+        const matched = list.find(
+          (entry) => String(entry?.promoCode || '').trim().toUpperCase() === promoCodeParam
+        );
+        setVoucher(matched || null);
+      } catch (_error) {
         if (!mounted) return;
         setVoucher(null);
-      })
-      .finally(() => {
+      } finally {
         if (mounted) setLoading(false);
-      });
+      }
+    };
+
+    fetchVoucher();
 
     return () => {
       mounted = false;
     };
-  }, [voucherId, routeVoucher]);
+  }, [voucherId, promoCodeParam, routeVoucher]);
 
   const getAuthToken = async () => {
     const secureToken = await SecureStore.getItemAsync('jwt');

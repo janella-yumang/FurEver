@@ -55,7 +55,14 @@ function requireAuth(req, res, next) {
 }
 
 function isSupportedPushToken(token = '') {
-  return isExpoPushToken(token) || isLikelyFcmToken(token);
+  return isLikelyFcmToken(token);
+}
+
+function maskToken(token = '') {
+  const raw = String(token || '').trim();
+  if (!raw) return '';
+  if (raw.length <= 12) return raw;
+  return `${raw.slice(0, 8)}...${raw.slice(-4)}`;
 }
 
 // GET notifications for a user
@@ -95,7 +102,7 @@ router.get('/user/:userId/:id', (req, res) => {
   }
 });
 
-// PUT register/update a user's push token (FCM or Expo)
+// PUT register/update a user's push token (FCM only)
 router.put('/user/:userId/push-token', requireAuth, (req, res) => {
   try {
     const userId = parseInt(req.params.userId, 10);
@@ -107,13 +114,18 @@ router.put('/user/:userId/push-token', requireAuth, (req, res) => {
     const { pushToken } = req.body || {};
 
     if (!pushToken || !isSupportedPushToken(pushToken)) {
-      return res.status(400).json({ message: 'A valid push token is required.' });
+      return res.status(400).json({ message: 'A valid FCM token is required.' });
     }
 
     const user = User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     User.update(userId, { pushToken });
+    console.log('[Push Token] Saved token for user:', {
+      userId,
+      email: user.email || '',
+      tokenMasked: maskToken(pushToken),
+    });
     return res.status(200).json({ message: 'Push token saved.' });
   } catch (err) {
     console.error('Save push token error:', err);
@@ -203,8 +215,15 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
 
     let created = 0;
     const pushMessages = [];
+    const targetById = new Map(targets.map((user) => [String(user.id), user]));
 
     for (const user of targets) {
+      if (user.pushToken && isExpoPushToken(user.pushToken)) {
+        // Remove legacy Expo tokens now that push delivery is FCM-only.
+        User.update(user.id, { pushToken: null });
+        user.pushToken = null;
+      }
+
       Notification.create({
         user: user.id,
         type: 'promo_discount',
@@ -219,6 +238,9 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
 
       if (user.pushToken && isSupportedPushToken(user.pushToken)) {
         pushMessages.push({
+          userId: user.id,
+          userEmail: user.email || '',
+          userName: user.name || '',
           token: user.pushToken,
           title,
           body: message,
@@ -236,22 +258,77 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
       }
     }
 
+    if (pushMessages.length > 0) {
+      console.log('[Push Broadcast] Recipients with valid push tokens:', pushMessages.map((entry) => ({
+        userId: entry.userId,
+        email: entry.userEmail,
+        name: entry.userName,
+        token: entry.token,
+        tokenMasked: maskToken(entry.token),
+      })));
+    } else {
+      console.log('[Push Broadcast] No users with valid push tokens for this campaign.');
+    }
+
     const pushResult = await sendPushMessages(pushMessages);
+
+    if (pushResult.reports?.length) {
+      console.log('[Push Broadcast] Delivery results by token:', pushResult.reports.map((report) => ({
+        userId: report.userId,
+        token: report.token,
+        tokenMasked: maskToken(report.token),
+        provider: report.provider,
+        status: report.status,
+        error: report.error || null,
+      })));
+
+      const deliveredPromoPushes = pushResult.reports
+        .filter((report) => report.provider === 'fcm' && report.status === 'sent')
+        .map((report) => {
+          const user = targetById.get(String(report.userId || ''));
+          return {
+            userId: report.userId,
+            email: user?.email || '',
+            name: user?.name || '',
+            token: report.token,
+            tokenMasked: maskToken(report.token),
+          };
+        });
+
+      if (deliveredPromoPushes.length > 0) {
+        console.log('[Push Broadcast] Promo push delivered (FCM):', deliveredPromoPushes);
+      } else {
+        console.log('[Push Broadcast] Promo push delivered (FCM): none');
+      }
+    }
 
     // Remove stale push tokens so they won't be retried in future broadcasts
     if (pushResult.staleTokens.size > 0) {
+      const staleAssignments = [];
       for (const user of targets) {
         if (user.pushToken && pushResult.staleTokens.has(user.pushToken)) {
+          staleAssignments.push({
+            userId: user.id,
+            email: user.email || '',
+            token: user.pushToken,
+            tokenMasked: maskToken(user.pushToken),
+          });
           User.update(user.id, { pushToken: null });
         }
       }
+      console.log('[Push Broadcast] Cleared stale push tokens:', staleAssignments);
     }
 
     return res.status(200).json({
       message: 'Promotion sent successfully.',
       voucher,
       created,
-      push: { sent: pushResult.sent, failed: pushResult.failed },
+      push: {
+        sent: pushResult.sent,
+        failed: pushResult.failed,
+        targetedUsers: pushMessages.length,
+        skippedUsersWithoutFcm: Math.max(0, targets.length - pushMessages.length),
+      },
     });
   } catch (err) {
     console.error('Broadcast promotion error:', err);

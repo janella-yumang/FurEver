@@ -33,6 +33,11 @@ yarn-error.*
 # local env files
 .env*.local
 
+# local sqlite artifacts
+server/*.db
+server/*.db-shm
+server/*.db-wal
+
 # Firebase service account keys
 gsa-key.json
 *firebase-adminsdk*.json

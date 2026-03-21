@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Image, StyleSheet, Dimensions, View, ScrollView, Text, TouchableOpacity } from "react-native";
 import Swiper from "react-native-swiper";
 import axios from "axios";
@@ -56,10 +56,6 @@ const Banner = () => {
       setFailedImages({});
     }
   };
-
-  useEffect(() => {
-    fetchActiveVouchers();
-  }, []);
 
   useFocusEffect(
     React.useCallback(() => {

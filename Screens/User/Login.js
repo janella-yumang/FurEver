@@ -2,12 +2,13 @@
 import React, { useState, useContext, useEffect } from "react";
 import { View, Text, StyleSheet, Button, Dimensions, TouchableOpacity, Alert } from 'react-native'
 import { useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as SecureStore from 'expo-secure-store'
 import FormContainer from "../../Shared/FormContainer";
 import { Ionicons } from "@expo/vector-icons";
 import { jwtDecode } from "jwt-decode";
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import Constants from 'expo-constants';
 
 import AuthGlobal from '../../Context/Store/AuthGlobal'
 import { loginUser, setCurrentUser } from '../../Context/Actions/Auth.actions'
@@ -25,8 +26,12 @@ WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_WEB_CLIENT_ID = '664610879987-0nnaap8m3cqeho1d5kanddnus8t8o969.apps.googleusercontent.com';
 
-// Expo auth proxy URL — this goes in Google Cloud Console as the Authorized redirect URI
-const EXPO_PROXY_REDIRECT = 'https://auth.expo.io/@erp15/ITCP239-s-2026';
+// Build Expo auth proxy URL from app config so owner/slug changes don't break Google sign-in.
+const expoOwner = Constants.expoConfig?.owner;
+const expoSlug = Constants.expoConfig?.slug;
+const EXPO_PROXY_REDIRECT = expoOwner && expoSlug
+    ? `https://auth.expo.io/@${expoOwner}/${expoSlug}`
+    : null;
 
 const Login = (props) => {
     const context = useContext(AuthGlobal)
@@ -42,6 +47,10 @@ const Login = (props) => {
     const handleGoogleSignIn = async () => {
         setGoogleLoading(true);
         try {
+            if (!EXPO_PROXY_REDIRECT) {
+                throw new Error('Missing Expo owner/slug config for Google auth redirect.');
+            }
+
             // Where Expo Go should return after auth
             const returnUrl = Linking.createURL('expo-auth-session');
 
@@ -127,7 +136,7 @@ const Login = (props) => {
 
             if (data.token) {
                 // Save JWT and set auth context
-                await AsyncStorage.setItem('jwt', data.token);
+                await SecureStore.setItemAsync('jwt', data.token);
                 const tokenDecoded = jwtDecode(data.token);
 
                 registerPushTokenForUser(tokenDecoded.userId, data.token).catch((error) => {
@@ -170,10 +179,10 @@ const Login = (props) => {
     const handleSubmit = () => {
         const user = {
             email: email.trim().toLowerCase(),
-            password,
+            password: password.trim(),
         };
 
-        if (user.email === "" || password === "") {
+        if (user.email === "" || user.password === "") {
             setError("Please fill in your credentials");
         } else {
             loginUser(user, context.dispatch, navigation);
@@ -202,7 +211,7 @@ const Login = (props) => {
                     const data = await response.json();
 
                     if (response.ok && data?.token) {
-                        await AsyncStorage.setItem("jwt", data.token);
+                        await SecureStore.setItemAsync("jwt", data.token);
                         const decoded = jwtDecode(data.token);
 
                         registerPushTokenForUser(decoded.userId, data.token).catch((error) => {
@@ -227,7 +236,7 @@ const Login = (props) => {
                 }
 
                 const token = generateOfflineJWT(account);
-                await AsyncStorage.setItem("jwt", token);
+                await SecureStore.setItemAsync("jwt", token);
 
                 const decoded = jwtDecode(token);
 
@@ -275,6 +284,8 @@ const Login = (props) => {
                 name={"email"}
                 id={"email"}
                 value={email}
+                keyboardType={"email-address"}
+                autoCapitalize={"none"}
                 onChangeText={(text) => setEmail(text.toLowerCase())}
             />
             <Input
@@ -283,6 +294,7 @@ const Login = (props) => {
                 id={"password"}
                 secureTextEntry={true}
                 value={password}
+                autoCapitalize={"none"}
                 onChangeText={(text) => setPassword(text)}
             />
             <View style={styles.authRow}>

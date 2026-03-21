@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const Order = require('../models/Order');
 const User = require('../models/User');
@@ -9,6 +10,29 @@ const { db } = require('../database');
 const { isExpoPushToken, isLikelyFcmToken, sendPushMessages } = require('../pushService');
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
+
+function requireAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization token required.' });
+    }
+
+    const token = authHeader.replace('Bearer ', '').trim();
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = parseInt(decoded.userId, 10);
+    const user = User.findById(userId);
+    if (!user || user.isActive === false) {
+      return res.status(401).json({ message: 'Invalid or inactive account.' });
+    }
+
+    req.user = user;
+    return next();
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid or expired token.' });
+  }
+}
 
 // ─── Email transporter ──────────────────────────────────────
 let transporter = null;
@@ -77,13 +101,27 @@ const sendOrderStatusEmail = async (user, order, status) => {
 };
 
 function isSupportedPushToken(token = '') {
-  return isExpoPushToken(token) || isLikelyFcmToken(token);
+  return isLikelyFcmToken(token);
+}
+
+function resolveFcmTokenForUser(user) {
+  if (!user || !user.pushToken) return null;
+
+  if (isExpoPushToken(user.pushToken)) {
+    // Clear legacy Expo tokens so only FCM tokens remain for order updates.
+    User.update(user.id, { pushToken: null });
+    return null;
+  }
+
+  return isLikelyFcmToken(user.pushToken) ? user.pushToken : null;
 }
 
 // ─── GET ALL ORDERS ─────────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', requireAuth, (req, res) => {
   try {
-    const orders = Order.find();
+    const orders = req.user.isAdmin
+      ? Order.find()
+      : Order.find({ user: parseInt(req.user.id, 10) });
     return res.status(200).json(orders);
   } catch (err) {
     console.error('Get orders error:', err);
@@ -92,9 +130,14 @@ router.get('/', (req, res) => {
 });
 
 // ─── GET ORDERS BY USER ─────────────────────────────────────
-router.get('/user/:userId', (req, res) => {
+router.get('/user/:userId', requireAuth, (req, res) => {
   try {
-    const orders = Order.find({ user: parseInt(req.params.userId) });
+    const requestedUserId = parseInt(req.params.userId, 10);
+    if (!req.user.isAdmin && req.user.id !== requestedUserId) {
+      return res.status(403).json({ message: 'Forbidden.' });
+    }
+
+    const orders = Order.find({ user: requestedUserId });
     return res.status(200).json(orders);
   } catch (err) {
     console.error('Get user orders error:', err);
@@ -103,10 +146,15 @@ router.get('/user/:userId', (req, res) => {
 });
 
 // ─── GET SINGLE ORDER ───────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', requireAuth, (req, res) => {
   try {
     const order = Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
+
+    if (!req.user.isAdmin && parseInt(order.userId, 10) !== parseInt(req.user.id, 10)) {
+      return res.status(403).json({ message: 'Forbidden.' });
+    }
+
     return res.status(200).json(order);
   } catch (err) {
     console.error('Get order error:', err);
@@ -115,7 +163,7 @@ router.get('/:id', (req, res) => {
 });
 
 // ─── CREATE ORDER ───────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const {
       orderItems,
@@ -151,6 +199,10 @@ router.post('/', async (req, res) => {
     let appliedVoucher = null;
     let voucherDiscount = 0;
     const userId = parseInt(user, 10);
+
+    if (!req.user.isAdmin && userId !== parseInt(req.user.id, 10)) {
+      return res.status(403).json({ message: 'Forbidden.' });
+    }
 
     if (voucherId || voucherCode) {
       appliedVoucher = voucherId
@@ -232,6 +284,26 @@ router.post('/', async (req, res) => {
         message: `Your order #${order._id} has been placed successfully!`,
         orderId: order.id,
       });
+
+      const userFcmToken = resolveFcmTokenForUser(userObj);
+      if (userFcmToken && isSupportedPushToken(userFcmToken)) {
+        const pushResult = await sendPushMessages([
+          {
+            token: userFcmToken,
+            title: 'Order Placed',
+            body: `Your order #${order._id} has been placed successfully!`,
+            data: {
+              type: 'order_confirmed',
+              orderId: order.id,
+              status: 'Pending',
+            },
+          },
+        ]);
+
+        if (pushResult.staleTokens.has(userFcmToken)) {
+          User.update(userObj.id, { pushToken: null });
+        }
+      }
     }
 
     // Notify admins
@@ -245,9 +317,10 @@ router.post('/', async (req, res) => {
         orderId: order.id,
       });
 
-      if (admin.pushToken && isSupportedPushToken(admin.pushToken)) {
+      const adminFcmToken = resolveFcmTokenForUser(admin);
+      if (adminFcmToken && isSupportedPushToken(adminFcmToken)) {
         adminPushMessages.push({
-          token: admin.pushToken,
+          token: adminFcmToken,
           title: 'New Order',
           body: `New order #${order._id} placed${userObj ? ' by ' + userObj.name : ''}.`,
           data: {
@@ -275,11 +348,22 @@ router.post('/', async (req, res) => {
 });
 
 // ─── UPDATE ORDER STATUS ────────────────────────────────────
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     let order = Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
+
+    const isAdmin = !!req.user.isAdmin;
+    const isOwner = parseInt(order.userId, 10) === parseInt(req.user.id, 10);
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ message: 'Forbidden.' });
+    }
+
     const { status, shippingAddress1, shippingAddress2, phone, paymentMethod } = req.body;
+
+    if (!isAdmin && status && !['Delivered', 'Canceled', 'Cancelled'].includes(status)) {
+      return res.status(403).json({ message: 'Customers can only confirm delivery or cancel their own orders.' });
+    }
 
     const updates = {};
     if (status) updates.status = status;
@@ -309,10 +393,11 @@ router.put('/:id', async (req, res) => {
           orderId: order.id,
         });
 
-        if (userObj.pushToken && isSupportedPushToken(userObj.pushToken)) {
+        const userFcmToken = resolveFcmTokenForUser(userObj);
+        if (userFcmToken && isSupportedPushToken(userFcmToken)) {
           const pushResult = await sendPushMessages([
             {
-              token: userObj.pushToken,
+              token: userFcmToken,
               title: `Order ${status}`,
               body: `Your order #${order._id} status has been updated to ${status}.`,
               data: {
@@ -323,7 +408,7 @@ router.put('/:id', async (req, res) => {
             },
           ]);
 
-          if (pushResult.staleTokens.has(userObj.pushToken)) {
+          if (pushResult.staleTokens.has(userFcmToken)) {
             User.update(userObj.id, { pushToken: null });
           }
         }
@@ -341,9 +426,10 @@ router.put('/:id', async (req, res) => {
             orderId: order.id,
           });
 
-          if (admin.pushToken && isSupportedPushToken(admin.pushToken)) {
+          const adminFcmToken = resolveFcmTokenForUser(admin);
+          if (adminFcmToken && isSupportedPushToken(adminFcmToken)) {
             adminPushMessages.push({
-              token: admin.pushToken,
+              token: adminFcmToken,
               title: 'Order Delivered',
               body: `Order #${order._id} has been delivered to ${userObj?.name || 'customer'}.`,
               data: {
@@ -387,10 +473,17 @@ router.put('/:id', async (req, res) => {
 });
 
 // ─── CANCEL ORDER ───────────────────────────────────────────
-router.put('/:id/cancel', async (req, res) => {
+router.put('/:id/cancel', requireAuth, async (req, res) => {
   try {
     let order = Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
+
+    const isAdmin = !!req.user.isAdmin;
+    const isOwner = parseInt(order.userId, 10) === parseInt(req.user.id, 10);
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ message: 'Forbidden.' });
+    }
+
     if (order.status === 'Delivered') {
       return res.status(400).json({ message: 'Cannot cancel a delivered order.' });
     }
@@ -420,6 +513,26 @@ router.put('/:id/cancel', async (req, res) => {
           message: `Your order #${order._id} has been cancelled.`,
           orderId: order.id,
         });
+
+        const userFcmToken = resolveFcmTokenForUser(userObj);
+        if (userFcmToken && isSupportedPushToken(userFcmToken)) {
+          const pushResult = await sendPushMessages([
+            {
+              token: userFcmToken,
+              title: 'Order Cancelled',
+              body: `Your order #${order._id} has been cancelled.`,
+              data: {
+                type: 'order_canceled',
+                orderId: order.id,
+                status: 'Cancelled',
+              },
+            },
+          ]);
+
+          if (pushResult.staleTokens.has(userFcmToken)) {
+            User.update(userObj.id, { pushToken: null });
+          }
+        }
       }
     }
     return res.status(200).json(order);
@@ -430,8 +543,12 @@ router.put('/:id/cancel', async (req, res) => {
 });
 
 // ─── DELETE ORDER ───────────────────────────────────────────
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireAuth, (req, res) => {
   try {
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: 'Admin access required.' });
+    }
+
     const deleted = Order.delete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Order not found.' });
     return res.status(200).json({ message: 'Order deleted.' });

@@ -13,6 +13,7 @@ import { addToCart } from '../../Redux/Actions/cartActions';
 import { addToWishlist, removeFromWishlist } from '../../Redux/Actions/cartActions';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import Toast from 'react-native-toast-message';
@@ -67,6 +68,17 @@ const SingleProduct = ({ route }) => {
 
     const getReviewId = (review) => review?._id || review?.id;
 
+    const getAuthToken = useCallback(async () => {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) return secureToken;
+        return AsyncStorage.getItem('jwt');
+    }, []);
+
+    const isOfflineQuickLogin = useCallback(() => {
+        const currentUserId = String(context.stateUser?.user?.userId || '');
+        return currentUserId.startsWith('quick-');
+    }, [context.stateUser]);
+
     const loadReviews = useCallback(() => {
         dispatch(fetchProductReviews(productId)).catch(() => {
             // Error state is tracked in Redux; avoid breaking the screen flow.
@@ -115,8 +127,16 @@ const SingleProduct = ({ route }) => {
             setUserHasDelivered(false);
             return;
         }
+        if (isOfflineQuickLogin()) {
+            setUserHasDelivered(false);
+            return;
+        }
         try {
-            const token = await AsyncStorage.getItem('jwt');
+            const token = await getAuthToken();
+            if (!token) {
+                setUserHasDelivered(false);
+                return;
+            }
             const userId = context.stateUser.user?.userId;
             const productId = item._id || item.id;
             
@@ -159,7 +179,7 @@ const SingleProduct = ({ route }) => {
             console.error('❌ Purchase check error:', err.message);
             setUserHasDelivered(false);
         }
-    }, [item, context.stateUser]);
+    }, [item, context.stateUser, getAuthToken, isOfflineQuickLogin]);
 
     useFocusEffect(
         useCallback(() => {
@@ -204,9 +224,17 @@ const SingleProduct = ({ route }) => {
             Alert.alert('Cannot Review', 'You can only review products you have purchased and received.');
             return;
         }
+        if (isOfflineQuickLogin()) {
+            Alert.alert('Online Login Required', 'Quick Login accounts cannot submit reviews. Please sign in with your real account.');
+            return;
+        }
 
         try {
-            const token = await AsyncStorage.getItem('jwt');
+            const token = await getAuthToken();
+            if (!token) {
+                Alert.alert('Login Required', 'Please login again to submit a review.');
+                return;
+            }
             console.log('📝 Submitting review for product:', productId, 'rating:', userRating);
             
             const res = await axios.post(
@@ -261,7 +289,15 @@ const SingleProduct = ({ route }) => {
             return;
         }
         try {
-            const token = await AsyncStorage.getItem('jwt');
+            if (isOfflineQuickLogin()) {
+                Toast.show({ topOffset: 60, type: 'error', text1: 'Online login required' });
+                return;
+            }
+            const token = await getAuthToken();
+            if (!token) {
+                Toast.show({ topOffset: 60, type: 'error', text1: 'Please login again' });
+                return;
+            }
             await axios.put(
                 `${baseURL}products/${item._id || item.id}/reviews/${reviewId}`,
                 { rating: editRating, text: editText, image: editImage },
@@ -283,7 +319,15 @@ const SingleProduct = ({ route }) => {
                 style: 'destructive',
                 onPress: async () => {
                     try {
-                        const token = await AsyncStorage.getItem('jwt');
+                        if (isOfflineQuickLogin()) {
+                            Toast.show({ topOffset: 60, type: 'error', text1: 'Online login required' });
+                            return;
+                        }
+                        const token = await getAuthToken();
+                        if (!token) {
+                            Toast.show({ topOffset: 60, type: 'error', text1: 'Please login again' });
+                            return;
+                        }
                         await axios.delete(
                             `${baseURL}products/${item._id || item.id}/reviews/${reviewId}`,
                             { headers: { Authorization: `Bearer ${token}` } }

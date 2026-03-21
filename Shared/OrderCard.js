@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import TrafficLight from "./StyledComponents/TrafficLight";
 import EasyButton from "./StyledComponents/EasyButton";
 import Toast from "react-native-toast-message";
 import { Picker } from "@react-native-picker/picker";
 
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from "axios";
 import baseURL from "../assets/common/baseurl";
-import { useNavigation } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native';
 
 const STATUS_CONFIG = {
   Pending: { color: '#FF8C42', icon: 'time', trafficLight: 'unavailable' },
@@ -29,151 +29,253 @@ const statuses = [
 const OrderCard = ({ item, update }) => {
   const [statusChange, setStatusChange] = useState(item.status || 'Pending');
   const [token, setToken] = useState('');
+  const [updating, setUpdating] = useState(false);
 
   const navigation = useNavigation();
 
   // Calculate total from orderItems if totalPrice not available
   const displayTotal = item.totalPrice || (item.orderItems?.reduce((t, oi) => t + (oi.price * (oi.quantity || 1)), 0) || 0);
   
-  React.useEffect(() => {
-    console.log(`📋 OrderCard for Order #${(item.id || item._id).toString().slice(-8)}`);
-    console.log(`   Status: ${item.status}`);
-    console.log(`   totalPrice field: ${item.totalPrice}`);
-    console.log(`   orderItems: ${item.orderItems?.length || 0} items`);
-    if (item.orderItems?.length) {
-      const calc = item.orderItems.reduce((t, oi) => t + (oi.price * (oi.quantity || 1)), 0);
-      console.log(`   Calculated from items: $${calc}`);
-    }
-    console.log(`   Display total: $${displayTotal}`);
-  }, [item]);
-
   const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.Pending;
 
   useEffect(() => {
-    AsyncStorage.getItem("jwt")
-      .then((res) => setToken(res))
-      .catch((error) => console.log(error));
+    const loadToken = async () => {
+      try {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) {
+          setToken(secureToken);
+          return;
+        }
+
+        const asyncToken = await AsyncStorage.getItem('jwt');
+        if (asyncToken) {
+          setToken(asyncToken);
+        }
+      } catch (error) {
+        console.log('Load order card auth token error:', error?.message || error);
+      }
+    };
+
+    loadToken();
   }, []);
 
-  const updateOrder = () => {
+  const updateOrder = async () => {
+    let authToken = token;
+
+    if (!authToken) {
+      const secureToken = await SecureStore.getItemAsync('jwt');
+      authToken = secureToken || await AsyncStorage.getItem('jwt');
+      if (authToken) setToken(authToken);
+    }
+
+    if (!authToken) {
+      Toast.show({
+        topOffset: 60,
+        type: 'error',
+        text1: 'Admin authentication missing',
+        text2: 'Please log in again.',
+      });
+      return;
+    }
+
     const config = {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${authToken}`,
       },
     };
+
+    setUpdating(true);
     axios
       .put(`${baseURL}orders/${item.id || item._id}`, { status: statusChange }, config)
       .then((res) => {
-        if (res.status == 200 || res.status == 201) {
+        if (res.status === 200 || res.status === 201) {
           Toast.show({
             topOffset: 60,
-            type: "success",
-            text1: "Order Updated",
+            type: 'success',
+            text1: 'Order Updated',
             text2: `Status changed to ${statusChange}`,
           });
           setTimeout(() => {
-            navigation.navigate("Orders");
+            navigation.navigate('Orders');
           }, 500);
         }
       })
       .catch((error) => {
+        const message = error?.response?.data?.message || error?.message || 'Please try again';
         Toast.show({
           topOffset: 60,
-          type: "error",
-          text1: "Something went wrong",
-          text2: "Please try again",
+          type: 'error',
+          text1: 'Update failed',
+          text2: message,
         });
+      })
+      .finally(() => {
+        setUpdating(false);
       });
   };
 
+  const customerName = item.user?.name || item.userName || 'Unknown customer';
+  const customerEmail = item.user?.email || item.userEmail || 'No email';
+  const customerId = item.user?._id || item.userId || item.user || 'N/A';
+
   return (
-    <View style={[{ backgroundColor: cfg.color }, styles.container]}>
-      <View style={styles.container}>
+    <View style={styles.card}>
+      <View style={styles.headerRow}>
         <Text style={styles.orderNumber}>Order #{(item.id || item._id || '').toString().slice(-8)}</Text>
-      </View>
-      <View style={{ marginTop: 10 }}>
-        <View style={styles.statusRow}>
-          <Ionicons name={cfg.icon} size={18} color="white" />
-          <Text style={styles.statusLabel}> {item.status || 'Pending'}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: cfg.color }]}> 
+          <Ionicons name={cfg.icon} size={14} color="white" />
+          <Text style={styles.statusBadgeText}>{item.status || 'Pending'}</Text>
         </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Customer</Text>
+        <Text style={styles.detailText}>{customerName}</Text>
+        <Text style={styles.subtleText}>{customerEmail}</Text>
+        <Text style={styles.subtleText}>Customer ID: {customerId}</Text>
+        {item.phone ? <Text style={styles.subtleText}>Phone: {item.phone}</Text> : null}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Delivery</Text>
         <Text style={styles.detailText}>
-          Address: {item.shippingAddress1} {item.shippingAddress2}
+          {item.shippingAddress1 || ''} {item.shippingAddress2 || ''}
         </Text>
-        <Text style={styles.detailText}>City: {item.city}</Text>
-        <Text style={styles.detailText}>Country: {item.country}</Text>
-        {item.paymentMethod && (
-          <Text style={styles.detailText}>Payment: {item.paymentMethod === 'gcash' ? 'GCash' : item.paymentMethod === 'card' ? 'Card' : item.paymentMethod === 'cod' ? 'COD' : item.paymentMethod}</Text>
-        )}
-        <Text style={styles.detailText}>
-          Date Ordered: {item.dateOrdered ? item.dateOrdered.split("T")[0] : 'N/A'}
-        </Text>
+        {item.city ? <Text style={styles.subtleText}>City: {item.city}</Text> : null}
+        {item.country ? <Text style={styles.subtleText}>Country: {item.country}</Text> : null}
+      </View>
+
+      <View style={styles.metaRow}>
+        <View>
+          <Text style={styles.subtleText}>Date Ordered</Text>
+          <Text style={styles.detailText}>{item.dateOrdered ? item.dateOrdered.split("T")[0] : 'N/A'}</Text>
+        </View>
         <View style={styles.priceContainer}>
-          <Text>Price: </Text>
+          <Text style={styles.subtleText}>Total</Text>
           <Text style={styles.price}>$ {displayTotal.toFixed(2)}</Text>
         </View>
-
-        {update ? (
-          <View>
-            <Picker
-              style={{ width: '100%', backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 8, marginTop: 10 }}
-              selectedValue={statusChange}
-              onValueChange={(e) => setStatusChange(e)}
-            >
-              {statuses.map((s) => (
-                <Picker.Item key={s.code} label={s.name} value={s.code} />
-              ))}
-            </Picker>
-            <EasyButton
-              secondary
-              large
-              onPress={() => updateOrder()}
-            >
-              <Text style={{ color: "white" }}>Update Status</Text>
-            </EasyButton>
-          </View>
-        ) : null}
       </View>
+
+      {item.paymentMethod && (
+        <Text style={styles.paymentText}>
+          Payment: {item.paymentMethod === 'gcash' ? 'GCash' : item.paymentMethod === 'card' ? 'Card' : item.paymentMethod === 'cod' ? 'COD' : item.paymentMethod}
+        </Text>
+      )}
+
+      {update ? (
+        <View style={styles.actionsWrap}>
+          <Picker
+            style={styles.statusPicker}
+            selectedValue={statusChange}
+            onValueChange={(value) => setStatusChange(value)}
+            enabled={!updating}
+          >
+            {statuses.map((s) => (
+              <Picker.Item key={s.code} label={s.name} value={s.code} />
+            ))}
+          </Picker>
+          <EasyButton
+            secondary
+            large
+            onPress={updateOrder}
+            disabled={updating}
+          >
+            {updating ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text style={styles.updateBtnText}>Update Status</Text>
+            )}
+          </EasyButton>
+        </View>
+      ) : null}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    margin: 10,
-    borderRadius: 10,
+  card: {
+    marginHorizontal: 12,
+    marginVertical: 8,
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   orderNumber: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: 'white',
+    color: '#1F2937',
   },
-  statusRow: {
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
   },
-  statusLabel: {
+  statusBadgeText: {
     color: 'white',
-    fontWeight: '600',
-    fontSize: 15,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  section: {
+    marginTop: 12,
+  },
+  sectionTitle: {
+    color: '#6B7280',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 4,
   },
   detailText: {
-    color: 'white',
-    marginVertical: 2,
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '600',
   },
-  title: {
-    backgroundColor: "#20C997",
-    padding: 5,
+  subtleText: {
+    color: '#4B5563',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  metaRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   priceContainer: {
-    marginTop: 10,
-    alignSelf: "flex-end",
-    flexDirection: "row",
+    alignItems: 'flex-end',
   },
   price: {
-    color: "white",
-    fontWeight: "bold",
+    color: '#111827',
+    fontWeight: '800',
+    fontSize: 20,
+  },
+  paymentText: {
+    marginTop: 10,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  actionsWrap: {
+    marginTop: 12,
+  },
+  statusPicker: {
+    width: '100%',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  updateBtnText: {
+    color: 'white',
+    fontWeight: '700',
   },
 });
 

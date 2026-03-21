@@ -53,8 +53,6 @@ const Checkout = (props) => {
         if ((voucher.maxClaims || 0) > 0 && (voucher.claimedCount || 0) >= (voucher.maxClaims || 0)) return false;
 
         return true;
-    };
-    
     const loadAvailableVouchers = (tokenValue, userId) => {
         axios
             .get(`${baseURL}notifications/promotions/vouchers/available/${userId}`, {
@@ -63,11 +61,8 @@ const Checkout = (props) => {
             .then((res) => {
                 const vouchers = (Array.isArray(res.data) ? res.data : []).filter(isVoucherCurrentlyAvailable);
                 setAvailableVouchers(vouchers);
-                setSelectedVoucherId((currentId) => {
-                    const stillExists = vouchers.some((v) => String(v.id) === String(currentId));
                     return stillExists ? currentId : '';
                 });
-            })
             .catch((err) => {
                 console.log('Error loading vouchers:', err?.response?.data || err?.message || err);
                 setAvailableVouchers([]);
@@ -95,8 +90,6 @@ const Checkout = (props) => {
                         })
                         .catch((err) => {
                             console.log('Error loading user profile:', err);
-                            // Fallback to auth context data (works for test/quick login accounts)
-                            const ctxUser = { ...(context.stateUser.user || {}), ...(context.stateUser.userProfile || {}) };
                             if (ctxUser.phone) setPhone(ctxUser.phone);
                             if (ctxUser.shippingAddress) setAddress(ctxUser.shippingAddress);
                         });
@@ -110,10 +103,8 @@ const Checkout = (props) => {
                 text1: "Please Login to Checkout",
                 text2: ""
             });
-        }
-
         return () => {
-            setOrderItems();
+              setOrderItems([]);
         }
     }, [])
 

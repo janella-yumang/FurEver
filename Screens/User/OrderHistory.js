@@ -1,9 +1,10 @@
-import React, { useState, useContext, useCallback } from 'react';
+import React, { useState, useContext, useCallback, useMemo } from 'react';
 import {
     View, Text, StyleSheet, FlatList, Dimensions, TouchableOpacity, Image, Alert, ActivityIndicator
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
@@ -27,9 +28,36 @@ const TRACKING_STEPS = ['Pending', 'Processing', 'Shipped', 'Delivered'];
 const OrderHistory = () => {
     const context = useContext(AuthGlobal);
     const navigation = useNavigation();
+    const route = useRoute();
     const dispatch = useDispatch();
     const orders = useSelector((state) => state.orders?.data || []);
     const [loading, setLoading] = useState(true);
+
+    const getAuthToken = async () => {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) return secureToken;
+        return AsyncStorage.getItem('jwt');
+    };
+
+    const focusedOrderId = route.params?.focusOrderId
+        ? String(route.params.focusOrderId)
+        : null;
+    const openedFromPush = route.params?.source === 'push';
+
+    const displayedOrders = useMemo(() => {
+        if (!focusedOrderId) return orders;
+
+        const targetIndex = orders.findIndex(
+            (order) => String(order.id || order._id || '') === focusedOrderId
+        );
+
+        if (targetIndex < 0) return orders;
+
+        const next = [...orders];
+        const [targetOrder] = next.splice(targetIndex, 1);
+        next.unshift(targetOrder);
+        return next;
+    }, [orders, focusedOrderId]);
 
     const fetchOrders = useCallback(() => {
         if (
@@ -43,7 +71,7 @@ const OrderHistory = () => {
         setLoading(true);
         const userId = context.stateUser.user.userId;
 
-        AsyncStorage.getItem('jwt')
+        getAuthToken()
             .then((token) => {
                 dispatch(fetchUserOrders(userId, token))
                     .finally(() => {
@@ -81,7 +109,7 @@ const OrderHistory = () => {
                     text: 'Yes, Cancel',
                     style: 'destructive',
                     onPress: () => {
-                        AsyncStorage.getItem('jwt').then((token) => {
+                        getAuthToken().then((token) => {
                             axios
                                 .put(
                                     `${baseURL}orders/${order.id || order._id}`,
@@ -121,7 +149,7 @@ const OrderHistory = () => {
                 {
                     text: 'Yes, Received',
                     onPress: () => {
-                        AsyncStorage.getItem('jwt').then((token) => {
+                        getAuthToken().then((token) => {
                             axios
                                 .put(
                                     `${baseURL}orders/${order.id || order._id}`,
@@ -208,6 +236,7 @@ const OrderHistory = () => {
     };
 
     const renderOrderItem = ({ item }) => {
+        const isFocusedOrder = focusedOrderId && String(item.id || item._id || '') === focusedOrderId;
         const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.Pending;
         const date = new Date(item.dateOrdered).toLocaleDateString('en-US', {
             year: 'numeric',
@@ -219,7 +248,7 @@ const OrderHistory = () => {
         const canMarkDelivered = item.status === 'Shipped';
 
         return (
-            <View style={styles.orderCard}>
+            <View style={[styles.orderCard, isFocusedOrder && styles.focusedOrderCard]}>
                 <View style={styles.orderHeader}>
                     <View>
                         <Text style={styles.orderId}>
@@ -234,6 +263,13 @@ const OrderHistory = () => {
                         </Text>
                     </View>
                 </View>
+
+                {isFocusedOrder && openedFromPush && (
+                    <View style={styles.focusTag}>
+                        <Ionicons name="notifications" size={14} color="#FF8C42" />
+                        <Text style={styles.focusTagText}>Opened from notification</Text>
+                    </View>
+                )}
 
                 {/* Order Tracking */}
                 {renderTrackingSteps(item.status)}
@@ -320,9 +356,9 @@ const OrderHistory = () => {
     return (
         <View style={styles.container}>
             <Text style={styles.heading}>Order History</Text>
-            {orders.length > 0 ? (
+            {displayedOrders.length > 0 ? (
                 <FlatList
-                    data={orders}
+                    data={displayedOrders}
                     renderItem={renderOrderItem}
                     keyExtractor={(item, index) => item.id || item._id || index.toString()}
                     contentContainerStyle={styles.listContainer}
@@ -379,6 +415,27 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
         shadowRadius: 3,
+    },
+    focusedOrderCard: {
+        borderWidth: 1,
+        borderColor: '#FF8C42',
+        backgroundColor: '#FFF8F0',
+    },
+    focusTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: '#FFF3E0',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        marginBottom: 10,
+        gap: 6,
+    },
+    focusTagText: {
+        color: '#FF8C42',
+        fontSize: 12,
+        fontWeight: '600',
     },
     orderHeader: {
         flexDirection: 'row',

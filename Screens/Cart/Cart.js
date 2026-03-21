@@ -139,13 +139,6 @@ const Cart = () => {
                 <TouchableOpacity
                     style={styles.checkoutButton}
                     onPress={() => {
-                        console.log('\n🛒 CHECKOUT from Cart');
-                        console.log('  Items:', cartItems.length);
-                        console.log('  Total: $' + total.toFixed(2));
-                        cartItems.forEach((item, idx) => {
-                            console.log(`    ${idx}: ${item.name} $${item.price} x${item.quantity || 1}`);
-                        });
-                        console.log('  Navigating...\n');
                         navigation.navigate('Checkout');
                     }}
                 >

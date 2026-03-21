@@ -34,14 +34,21 @@ const AdminDashboard = () => {
 
     useFocusEffect(
         useCallback(() => {
+            let isMounted = true;
+
             AsyncStorage.getItem("jwt")
-                .then((res) => setToken(res))
+                .then((res) => {
+                    if (isMounted) {
+                        setToken(res);
+                    }
+                })
                 .catch(() => {});
 
             // Fetch products
             axios
                 .get(`${baseURL}products`)
                 .then((res) => {
+                    if (!isMounted) return;
                     const data = res.data || [];
                     setProducts(data);
                     const outOfStock = data.filter(
@@ -55,6 +62,7 @@ const AdminDashboard = () => {
                     setLoading(false);
                 })
                 .catch(() => {
+                    if (!isMounted) return;
                     setProducts([]);
                     setLoading(false);
                 });
@@ -63,6 +71,7 @@ const AdminDashboard = () => {
             axios
                 .get(`${baseURL}orders`)
                 .then((res) => {
+                    if (!isMounted) return;
                     const data = res.data || [];
                     setOrders(data);
                     setStats((prev) => ({
@@ -70,12 +79,14 @@ const AdminDashboard = () => {
                         totalOrders: data.length,
                     }));
                 })
-                .catch(() => setOrders([]));
+                .catch(() => {
+                    if (isMounted) {
+                        setOrders([]);
+                    }
+                });
 
             return () => {
-                setProducts([]);
-                setOrders([]);
-                setLoading(true);
+                isMounted = false;
             };
         }, [])
     );

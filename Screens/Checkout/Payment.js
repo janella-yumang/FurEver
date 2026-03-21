@@ -28,21 +28,6 @@ const Payment = ({ route }) => {
     const [cardExpiry, setCardExpiry] = useState('');
     const [cardCvv, setCardCvv] = useState('');
 
-    React.useEffect(() => {
-        console.log('\n💳 PAYMENT SCREEN');
-        console.log('  Order items received:', order?.orderItems?.length || 0);
-        if (order?.orderItems?.length) {
-            const total = order.orderItems.reduce((t, i) => t + (i.price * (i.quantity || 1)), 0);
-            console.log(`  Total: $${total}`);
-            order.orderItems.forEach((item, idx) => {
-                console.log(`    ${idx}: ${item.name} x${item.quantity || 1} @ $${item.price}`);
-            });
-        } else {
-            console.log('  ⚠️ NO ITEMS in order!');
-        }
-        console.log('');
-    }, [route]);
-
     const validateAndProceed = () => {
         if (!selected) {
             Toast.show({ topOffset: 60, type: 'error', text1: 'Please select a payment method' });

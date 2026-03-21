@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux'
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as SecureStore from 'expo-secure-store'
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
@@ -21,8 +22,14 @@ const Confirm = (props) => {
     const dispatch = useDispatch()
     const navigation = useNavigation()
 
+    const getAuthToken = async () => {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) return secureToken;
+        return AsyncStorage.getItem("jwt");
+    };
+
     useEffect(() => {
-        AsyncStorage.getItem("jwt")
+        getAuthToken()
             .then((res) => setToken(res))
             .catch((error) => console.log(error))
     }, [])
@@ -63,8 +70,13 @@ const Confirm = (props) => {
     const voucherDiscount = parseFloat(orderData.voucherPreviewDiscount) || 0;
     const finalTotal = Math.max(0, subtotal - voucherDiscount);
 
-    const confirmOrder = () => {
-        if (!orderData || !token) {
+    const confirmOrder = async () => {
+        const authToken = token || await getAuthToken();
+        if (authToken && authToken !== token) {
+            setToken(authToken);
+        }
+
+        if (!orderData || !authToken) {
             Toast.show({
                 topOffset: 60,
                 type: "error",
@@ -76,7 +88,7 @@ const Confirm = (props) => {
         setLoading(true);
         const config = {
             headers: {
-                Authorization: `Bearer ${token}`
+                Authorization: `Bearer ${authToken}`
             }
         }
 
@@ -127,7 +139,7 @@ const Confirm = (props) => {
                     axios.put(
                         `${baseURL}users/${context.stateUser.user.userId}`,
                         profileUpdate,
-                        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+                        { headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'multipart/form-data' } }
                     ).catch((err) => console.log('Profile update after order:', err));
                 }
 

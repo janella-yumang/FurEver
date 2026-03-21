@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer, userEffect, useState } from "react";
+import React, { useEffect, useReducer, useState } from "react";
 // import "core-js/stable/atob";
 import { jwtDecode } from "jwt-decode"
 import * as SecureStore from 'expo-secure-store'
@@ -6,6 +6,7 @@ import * as SecureStore from 'expo-secure-store'
 import authReducer from "../Reducers/Auth.reducer";
 import { setCurrentUser } from "../Actions/Auth.actions";
 import AuthGlobal from './AuthGlobal'
+import { registerPushTokenForUser } from '../../assets/common/pushNotifications';
 
 const Auth = props => {
     // console.log(props.children)
@@ -20,7 +21,11 @@ const Auth = props => {
         SecureStore.getItemAsync('jwt').then((token) => {
             if (token) {
                 try {
-                    dispatch(setCurrentUser(jwtDecode(token)));
+                    const decoded = jwtDecode(token);
+                    dispatch(setCurrentUser(decoded));
+                    registerPushTokenForUser(decoded?.userId, token).catch((error) => {
+                        console.log('Push bootstrap registration failed:', error?.message || error);
+                    });
                 } catch (_) {}
             }
         }).catch(() => {});

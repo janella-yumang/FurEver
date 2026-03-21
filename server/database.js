@@ -1,7 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.resolve(__dirname, 'furever.db');
+// Allow overriding SQLite location in production (e.g. Render persistent disk).
+const DB_PATH = process.env.SQLITE_DB_PATH
+  ? path.resolve(process.env.SQLITE_DB_PATH)
+  : path.resolve(__dirname, 'furever.db');
 
 const db = new Database(DB_PATH);
 

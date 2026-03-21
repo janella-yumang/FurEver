@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import baseURL from '../../assets/common/baseurl';
@@ -41,6 +42,12 @@ const NotificationDetail = () => {
   const [notification, setNotification] = useState(route.params?.notification || null);
   const [claiming, setClaiming] = useState(false);
 
+  const getAuthToken = async () => {
+    const secureToken = await SecureStore.getItemAsync('jwt');
+    if (secureToken) return secureToken;
+    return AsyncStorage.getItem('jwt');
+  };
+
   const fetchNotificationDetail = useCallback(async () => {
     const userId = context.stateUser.user?.userId || context.stateUser.user?.sub;
     if (!userId || !notificationId) {
@@ -49,7 +56,7 @@ const NotificationDetail = () => {
     }
 
     try {
-      const token = await AsyncStorage.getItem('jwt');
+      const token = await getAuthToken();
       const res = await axios.get(
         `${baseURL}notifications/user/${userId}/${notificationId}`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -79,7 +86,7 @@ const NotificationDetail = () => {
 
     try {
       setClaiming(true);
-      const token = await AsyncStorage.getItem('jwt');
+      const token = await getAuthToken();
       const res = await axios.post(
         `${baseURL}notifications/promotions/vouchers/${notification.voucherId}/claim`,
         { userId },
@@ -93,6 +100,16 @@ const NotificationDetail = () => {
     } finally {
       setClaiming(false);
     }
+  };
+
+  const openOrderDetails = () => {
+    const orderId = notification?.order || notification?.orderId;
+    if (!orderId) return;
+
+    navigation.navigate('Order History', {
+      focusOrderId: String(orderId),
+      source: 'notification-detail',
+    });
   };
 
   if (loading) {
@@ -157,6 +174,13 @@ const NotificationDetail = () => {
             <Text style={styles.metaLabel}>Order ID</Text>
             <Text style={styles.metaValue}>#{notification.order}</Text>
           </View>
+        )}
+
+        {!!(notification.order || notification.orderId) && (
+          <TouchableOpacity style={styles.viewOrderBtn} onPress={openOrderDetails}>
+            <Ionicons name="receipt-outline" size={16} color="#fff" />
+            <Text style={styles.viewOrderBtnText}>View Order Details</Text>
+          </TouchableOpacity>
         )}
 
         {!!notification.product && (
@@ -292,6 +316,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   claimBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  viewOrderBtn: {
+    marginTop: 14,
+    backgroundColor: '#FF8C42',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  viewOrderBtnText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 15,

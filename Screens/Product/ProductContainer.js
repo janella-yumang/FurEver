@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { View, StyleSheet, FlatList, ActivityIndicator, Dimensions, ScrollView, TouchableOpacity, Modal } from 'react-native'
 import { Surface, Text, TextInput, Searchbar, Chip } from 'react-native-paper';
 import { Ionicons } from "@expo/vector-icons";
@@ -46,8 +46,6 @@ var { height, width } = Dimensions.get('window')
 
 const ProductContainer = () => {
     const dispatch = useDispatch();
-    const productsState = useSelector((state) => state.products);
-    const products = productsState?.data || [];
     const [productsFiltered, setProductsFiltered] = useState([]);
     const [focus, setFocus] = useState('');
     const [categories, setCategories] = useState([]);
@@ -63,6 +61,19 @@ const ProductContainer = () => {
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [priceRange, setPriceRange] = useState(200);
     const [showInStockOnly, setShowInStockOnly] = useState(false);
+
+    const productsByCategory = useMemo(() => {
+        const grouped = {};
+        productsCtg.forEach((product) => {
+            const categoryName = typeof product.category === 'object' ? product.category?.name : product.category;
+            if (!categoryName) return;
+            if (!grouped[categoryName]) {
+                grouped[categoryName] = [];
+            }
+            grouped[categoryName].push(product);
+        });
+        return grouped;
+    }, [productsCtg]);
 
     const searchProduct = (text) => {
         setProductsFiltered(
@@ -134,25 +145,30 @@ const ProductContainer = () => {
     useFocusEffect((
         useCallback(
             () => {
+                let isMounted = true;
                 setFocus(false);
                 setActive(-1);
+                setLoading(true);
                 if (Platform.OS === 'web') {
-                    setProductsFiltered(mockProducts);
-                    setProductsCtg(mockProducts);
-                    setInitialState(mockProducts);
-                    setCategories(mockCategories);
-                    setLoading(false);
+                    if (isMounted) {
+                        setProductsFiltered(mockProducts);
+                        setProductsCtg(mockProducts);
+                        setInitialState(mockProducts);
+                        setCategories(mockCategories);
+                        setLoading(false);
+                    }
                 } else {
                     dispatch(fetchProducts())
                         .then((data) => {
+                            if (!isMounted) return;
                             const productData = data || [];
                             setProductsFiltered(productData);
                             setProductsCtg(productData);
                             setInitialState(productData);
                             setLoading(false)
                         })
-                        .catch((error) => {
-                            console.log('Api call error')
+                        .catch(() => {
+                            if (!isMounted) return;
                             setProductsFiltered(mockProducts);
                             setProductsCtg(mockProducts);
                             setInitialState(mockProducts);
@@ -162,24 +178,20 @@ const ProductContainer = () => {
                     axios
                         .get(`${baseURL}categories`)
                         .then((res) => {
+                            if (!isMounted) return;
                             setCategories(res.data)
                         })
-                        .catch((error) => {
-                            console.log('Api categories call error')
+                        .catch(() => {
+                            if (!isMounted) return;
                             setCategories(mockCategories);
                         })
                 }
 
                 return () => {
-                    setProductsFiltered([]);
-                    setFocus(false);
-                    setCategories([]);
-                    setActive(-1);
-                    setInitialState([]);
-                    setProductsCtg([]);
+                    isMounted = false;
                 };
             },
-            [],
+            [dispatch],
         )
     ))
 
@@ -265,10 +277,7 @@ const ProductContainer = () => {
                             {/* Organize products by category */}
                             {(categories.length > 0 ? categories : mockCategories).map((category) => {
                                 const catName = category.name;
-                                const categoryProducts = productsCtg.filter(p => {
-                                    const pCat = typeof p.category === 'object' ? p.category?.name : p.category;
-                                    return pCat === catName;
-                                });
+                                const categoryProducts = productsByCategory[catName] || [];
                                 if (categoryProducts.length === 0) return null;
 
                                 return (

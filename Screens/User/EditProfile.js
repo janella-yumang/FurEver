@@ -6,6 +6,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
@@ -32,6 +33,12 @@ const EditProfile = () => {
     const [showMapPicker, setShowMapPicker] = useState(false);
     const [coordinates, setCoordinates] = useState(null);
 
+    const getAuthToken = async () => {
+        const secureToken = await SecureStore.getItemAsync('jwt');
+        if (secureToken) return secureToken;
+        return AsyncStorage.getItem('jwt');
+    };
+
     useFocusEffect(
         useCallback(() => {
             if (
@@ -42,7 +49,7 @@ const EditProfile = () => {
                 return;
             }
 
-            AsyncStorage.getItem('jwt')
+            getAuthToken()
                 .then((token) => {
                     axios
                         .get(`${baseURL}users/${context.stateUser.user.userId}`, {
@@ -141,7 +148,7 @@ const EditProfile = () => {
         }
         setLoading(true);
         try {
-            const token = await AsyncStorage.getItem('jwt');
+            const token = await getAuthToken();
             let formData = new FormData();
             formData.append('name', name);
             formData.append('email', email);

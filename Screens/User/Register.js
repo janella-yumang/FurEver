@@ -84,8 +84,16 @@ const Register = (props) => {
     };
 
     const register = () => {
-        if (email === "" || name === "" || phone === "" || password === "") {
+        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedName = name.trim();
+        const normalizedPhone = phone.trim();
+
+        if (normalizedEmail === "" || normalizedName === "" || normalizedPhone === "" || password.trim() === "") {
             setError("Please fill in all required fields");
+            return;
+        }
+        if (confirmPassword.trim() === "") {
+            setError("Please confirm your password");
             return;
         }
         if (password !== confirmPassword) {
@@ -105,10 +113,10 @@ const Register = (props) => {
             });
         }
 
-        formData.append("name", name);
-        formData.append("email", email);
-        formData.append("password", password);
-        formData.append("phone", phone);
+        formData.append("name", normalizedName);
+        formData.append("email", normalizedEmail);
+        formData.append("password", password.trim());
+        formData.append("phone", normalizedPhone);
         formData.append("isAdmin", false);
         formData.append("role", "customer");
         formData.append("shippingAddress", address);
@@ -144,7 +152,7 @@ const Register = (props) => {
 
                     setTimeout(() => {
                         navigation.navigate("Verify Email", {
-                            email: email.toLowerCase(),
+                            email: normalizedEmail,
                             emailDebug: emailDebug || null,
                         });
                     }, 500);
@@ -192,13 +200,26 @@ const Register = (props) => {
 
     useEffect(() => {
         (async () => {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                setErrorMsg('Permission to access location was denied');
-                return;
+            try {
+                let { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    setErrorMsg('Permission to access location was denied');
+                    return;
+                }
+
+                const servicesEnabled = await Location.hasServicesEnabledAsync();
+                if (!servicesEnabled) {
+                    setErrorMsg('Location services are disabled on this device.');
+                }
+
+                let currentLocation = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                });
+                setLocation(currentLocation);
+            } catch (locError) {
+                console.log('Register screen location bootstrap failed:', locError?.message || locError);
+                setErrorMsg('Could not read current location right now.');
             }
-            let location = await Location.getCurrentPositionAsync({});
-            setLocation(location);
         })();
     }, []);
 
@@ -231,6 +252,8 @@ const Register = (props) => {
                     placeholder={"Email *"}
                     name={"email"}
                     id={"email"}
+                    keyboardType={"email-address"}
+                    autoCapitalize={"none"}
                     onChangeText={(text) => setEmail(text.toLowerCase())}
                 />
                 <Input
@@ -251,6 +274,7 @@ const Register = (props) => {
                     name={"password"}
                     id={"password"}
                     secureTextEntry={true}
+                    autoCapitalize={"none"}
                     onChangeText={(text) => setPassword(text)}
                 />
                 <Input
@@ -258,6 +282,7 @@ const Register = (props) => {
                     name={"confirmPassword"}
                     id={"confirmPassword"}
                     secureTextEntry={true}
+                    autoCapitalize={"none"}
                     onChangeText={(text) => setConfirmPassword(text)}
                 />
 
