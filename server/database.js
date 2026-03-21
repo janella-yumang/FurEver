@@ -28,9 +28,9 @@ const defaultDbPath = IS_PRODUCTION ? persistentDbPath : path.resolve(__dirname,
 const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
 
 if (IS_PRODUCTION) {
-  // Only attempt to create the parent directory if it's not the root persistent disk
+  // Only attempt to create the parent directory if it's not the root persistent disk mount point
   const parentDir = path.dirname(selectedDbPath);
-  if (parentDir !== DATA_DIR) {
+  if (parentDir !== DATA_DIR && parentDir !== '/data') {
     try {
       fs.mkdirSync(parentDir, { recursive: true });
     } catch (err) {
