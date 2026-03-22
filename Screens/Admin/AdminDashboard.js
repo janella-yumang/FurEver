@@ -73,8 +73,8 @@ const AdminDashboard = () => {
                         setLoading(false);
                     });
 
-                // Fetch orders (requires auth)
-                if (!authToken) {
+                // Fetch orders (requires auth). Try all token candidates in case one is stale.
+                if (!tokenCandidates.length) {
                     if (isMounted) {
                         setOrders([]);
                         setStats((prev) => ({
@@ -85,28 +85,35 @@ const AdminDashboard = () => {
                     return;
                 }
 
-                axios
-                    .get(`${baseURL}orders`, {
-                        headers: { Authorization: `Bearer ${authToken}` },
-                    })
-                    .then((res) => {
+                let loaded = false;
+                for (const candidate of tokenCandidates) {
+                    try {
+                        const res = await axios.get(`${baseURL}orders`, {
+                            headers: { Authorization: `Bearer ${candidate}` },
+                        });
+
                         if (!isMounted) return;
                         const data = res.data || [];
+                        setToken(candidate);
                         setOrders(data);
                         setStats((prev) => ({
                             ...prev,
                             totalOrders: data.length,
                         }));
-                    })
-                    .catch(() => {
-                        if (isMounted) {
-                            setOrders([]);
-                            setStats((prev) => ({
-                                ...prev,
-                                totalOrders: 0,
-                            }));
-                        }
-                    });
+                        loaded = true;
+                        break;
+                    } catch (_) {
+                        // Try next token candidate.
+                    }
+                }
+
+                if (!loaded && isMounted) {
+                    setOrders([]);
+                    setStats((prev) => ({
+                        ...prev,
+                        totalOrders: 0,
+                    }));
+                }
             };
 
             loadDashboard().catch(() => {
