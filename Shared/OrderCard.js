@@ -114,9 +114,13 @@ const OrderCard = ({ item, update }) => {
       });
   };
 
-  const customerName = item.user?.name || item.userName || 'Unknown customer';
-  const customerEmail = item.user?.email || item.userEmail || 'No email';
-  const customerId = item.user?._id || item.userId || item.user || 'N/A';
+  const customerName = item?.user?.name || item?.userName || 'Unknown customer';
+  const customerEmail = item?.user?.email || item?.userEmail || 'No email';
+  const customerId = item?.user?._id || item?.userId || item?.user || 'N/A';
+  const getOrderItems = () => {
+    if (Array.isArray(item?.orderItems)) return item.orderItems;
+    return [];
+  };
 
   return (
     <View style={styles.card}>
@@ -155,6 +159,21 @@ const OrderCard = ({ item, update }) => {
           <Text style={styles.price}>$ {displayTotal.toFixed(2)}</Text>
         </View>
       </View>
+
+      {getOrderItems().length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Items Ordered</Text>
+          {getOrderItems().map((oi, idx) => (
+            <View key={`${oi.id || idx}`} style={styles.orderItemRow}>
+              <View style={styles.orderItemInfo}>
+                <Text style={styles.orderItemName} numberOfLines={1}>{oi.name || 'Unknown'}</Text>
+                <Text style={styles.orderItemQuantity}>Qty: {oi.quantity || 1}</Text>
+              </View>
+              <Text style={styles.orderItemPrice}>₱{(parseFloat(oi.price || 0) * (oi.quantity || 1)).toFixed(2)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {item.paymentMethod && (
         <Text style={styles.paymentText}>
@@ -276,6 +295,33 @@ const styles = StyleSheet.create({
   updateBtnText: {
     color: 'white',
     fontWeight: '700',
+  },
+  orderItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  orderItemInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  orderItemName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  orderItemQuantity: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  orderItemPrice: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FF8C42',
   },
 });
 

@@ -99,10 +99,20 @@ function resolveFcmTokenForUser(user) {
 // ─── GET ALL ORDERS ─────────────────────────────────────────
 router.get('/', requireAuth, (req, res) => {
   try {
-    const orders = req.user.isAdmin
-      ? Order.find()
-      : Order.find({ user: parseInt(req.user.id, 10) });
-    return res.status(200).json(orders);
+    if (!req.user) {
+      return res.status(401).json({ message: 'User not found in request.' });
+    }
+
+    let orders = [];
+    if (req.user.isAdmin) {
+      orders = Order.find();
+    } else {
+      orders = Order.find({ user: parseInt(req.user.id, 10) });
+    }
+
+    // Ensure we return an array
+    const result = Array.isArray(orders) ? orders : [];
+    return res.status(200).json(result);
   } catch (err) {
     console.error('Get orders error:', err);
     return res.status(500).json({ message: 'Failed to fetch orders.' });

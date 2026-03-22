@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, FlatList, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import axios from 'axios'
 import baseURL from "../../assets/common/baseurl";
 import { useFocusEffect } from '@react-navigation/native'
@@ -12,6 +12,7 @@ import OrderCard from "../../Shared/OrderCard";
 const Orders = (props) => {
     const [orderList, setOrderList] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     const getAuthTokenCandidates = useCallback(async () => {
         const secureToken = await SecureStore.getItemAsync('jwt');
@@ -24,18 +25,23 @@ const Orders = (props) => {
             () => {
                 getOrders();
                 return () => {
-                    setOrderList([]);
+                    // Cleanup if needed
                 }
             }, [],
         )
     )
 
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        getOrders().finally(() => setRefreshing(false));
+    }, []);
+
     const getOrders = async () => {
-        setLoading(true);
         try {
             const tokenCandidates = await getAuthTokenCandidates();
             if (!tokenCandidates.length) {
                 setOrderList([]);
+                setLoading(false);
                 Toast.show({
                     topOffset: 60,
                     type: 'info',
@@ -48,6 +54,7 @@ const Orders = (props) => {
             let lastError = null;
             for (const candidate of tokenCandidates) {
                 try {
+                    // Verify token is not quick login
                     const decoded = jwtDecode(candidate);
                     if (String(decoded?.userId || '').startsWith('quick-')) {
                         continue;
@@ -59,14 +66,20 @@ const Orders = (props) => {
                 try {
                     const res = await axios.get(`${baseURL}orders`, {
                         headers: { Authorization: `Bearer ${candidate}` },
+                        timeout: 10000,
                     });
-                    setOrderList(Array.isArray(res.data) ? res.data : []);
+                    
+                    const data = Array.isArray(res.data) ? res.data : [];
+                    setOrderList(data);
+                    setLoading(false);
                     return;
                 } catch (err) {
                     lastError = err;
+                    continue;
                 }
             }
 
+            // Check if it's an offline admin account
             const looksOfflineOnly = tokenCandidates.some((candidate) => {
                 try {
                     const decoded = jwtDecode(candidate);
@@ -78,6 +91,7 @@ const Orders = (props) => {
 
             if (looksOfflineOnly) {
                 setOrderList([]);
+                setLoading(false);
                 Toast.show({
                     topOffset: 60,
                     type: 'info',
@@ -91,16 +105,23 @@ const Orders = (props) => {
         } catch (error) {
             console.log('Load admin orders error:', error?.response?.data || error?.message || error);
             setOrderList([]);
+            setLoading(false);
+            const errorMsg = error?.response?.data?.message || error?.message || 'Failed to load orders.';
             Toast.show({
                 topOffset: 60,
                 type: 'error',
-                text1: error?.response?.data?.message || 'Failed to load orders.',
+                text1: errorMsg,
                 text2: 'Please re-login as admin and try again.',
             });
-        } finally {
-            setLoading(false);
         }
     }
+
+    const renderOrderCard = ({ item }) => {
+        if (!item || typeof item !== 'object') {
+            return null;
+        }
+        return <OrderCard item={item} update={true} />;
+    };
 
     if (loading) {
         return (
@@ -113,19 +134,27 @@ const Orders = (props) => {
 
     return (
         <View style={styles.container}>
-            <Text style={styles.heading}>Manage Orders ({orderList.length})</Text>
-            {orderList.length === 0 ? (
+            <Text style={styles.heading}>Manage Orders ({Array.isArray(orderList) ? orderList.length : 0})</Text>
+            {Array.isArray(orderList) && orderList.length === 0 ? (
                 <View style={styles.center}>
                     <Text style={styles.emptyText}>No orders found</Text>
                 </View>
             ) : (
                 <FlatList
-                    data={orderList}
-                    renderItem={({ item }) => (
-                        <OrderCard item={item} update={true} />
-                    )}
-                    keyExtractor={(item) => item.id || item._id}
+                    data={Array.isArray(orderList) ? orderList : []}
+                    renderItem={renderOrderCard}
+                    keyExtractor={(item, index) => {
+                        if (!item) return `order-${index}`;
+                        return String(item._id || item.id || index);
+                    }}
                     contentContainerStyle={{ paddingBottom: 20 }}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor="#FF8C42"
+                        />
+                    }
                 />
             )}
         </View>

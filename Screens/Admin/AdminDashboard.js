@@ -382,38 +382,51 @@ const AdminDashboard = () => {
                     </TouchableOpacity>
                 </View>
 
-                {orders.length > 0 ? (
+                {Array.isArray(orders) && orders.length > 0 ? (
                     <>
-                        {orders.slice(0, 3).map((order, index) => (
-                            <View key={order._id || order.id || index} style={styles.orderCard}>
-                                <View style={styles.orderLeft}>
-                                    <Text style={styles.orderId}>Order #{(order._id || order.id || "").slice(-6)}</Text>
-                                    <Text style={styles.orderDate}>
-                                        {new Date(order.dateOrdered || new Date()).toLocaleDateString()}
-                                    </Text>
+                        {orders.slice(0, 3).map((order, index) => {
+                            if (!order) return null;
+                            const orderId = order._id || order.id;
+                            const totalPrice = parseFloat(order.totalPrice || 0);
+                            const status = order.status || "Pending";
+                            const dateOrdered = order.dateOrdered ? new Date(order.dateOrdered).toLocaleDateString() : new Date().toLocaleDateString();
+                            return (
+                                <View 
+                                    key={`${orderId}-${index}`} 
+                                    style={styles.orderCard}
+                                    onPress={() => orderId && navigation.navigate("Orders")}
+                                >
+                                    <View style={styles.orderLeft}>
+                                        <Text style={styles.orderId}>
+                                            Order #{orderId ? String(orderId).slice(-6) : "N/A"}
+                                        </Text>
+                                        <Text style={styles.orderDate}>{dateOrdered}</Text>
+                                    </View>
+                                    <View style={styles.orderRight}>
+                                        <Text style={styles.orderTotal}>
+                                            ₱{totalPrice.toFixed(2)}
+                                        </Text>
+                                        <Text
+                                            style={[
+                                                styles.orderStatus,
+                                                {
+                                                    color:
+                                                        status === "Delivered"
+                                                            ? "#20C997"
+                                                            : status === "Shipped"
+                                                                ? "#FF8C42"
+                                                                : status === "Processing"
+                                                                    ? "#339AF0"
+                                                                    : "#007BFF",
+                                                },
+                                            ]}
+                                        >
+                                            {status}
+                                        </Text>
+                                    </View>
                                 </View>
-                                <View style={styles.orderRight}>
-                                    <Text style={styles.orderTotal}>
-                                        ${order.totalPrice?.toFixed(2) || "0.00"}
-                                    </Text>
-                                    <Text
-                                        style={[
-                                            styles.orderStatus,
-                                            {
-                                                color:
-                                                    order.status === "Delivered"
-                                                        ? "#20C997"
-                                                        : order.status === "Shipped"
-                                                            ? "#FF8C42"
-                                                            : "#007BFF",
-                                            },
-                                        ]}
-                                    >
-                                        {order.status || "Pending"}
-                                    </Text>
-                                </View>
-                            </View>
-                        ))}
+                            );
+                        })}
                     </>
                 ) : (
                     <View style={styles.emptyState}>
