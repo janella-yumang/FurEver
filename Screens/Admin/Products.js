@@ -111,7 +111,7 @@ const Products = (props) => {
     useFocusEffect(
         useCallback(
             () => {
-                await AsyncStorage.getItem("jwt")
+                AsyncStorage.getItem("jwt")
                     .then((res) => setToken(res))
                     .catch((error) => console.log(error))
 
