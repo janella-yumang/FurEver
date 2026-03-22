@@ -92,7 +92,11 @@ const VoucherDetail = () => {
   const getAuthToken = async () => {
     const secureToken = await SecureStore.getItemAsync('jwt');
     if (secureToken) return secureToken;
-    return AsyncStorage.getItem('jwt');
+    
+    const asyncToken = await AsyncStorage.getItem('jwt');
+    if (asyncToken) return asyncToken;
+    
+    throw new Error('No auth token found. Please log in again.');
   };
 
   const onClaim = async () => {

@@ -71,7 +71,11 @@ const SingleProduct = ({ route }) => {
     const getAuthToken = useCallback(async () => {
         const secureToken = await SecureStore.getItemAsync('jwt');
         if (secureToken) return secureToken;
-        return AsyncStorage.getItem('jwt');
+        
+        const asyncToken = await AsyncStorage.getItem('jwt');
+        if (asyncToken) return asyncToken;
+        
+        return null; // Return null if no token found
     }, []);
 
     const isOfflineQuickLogin = useCallback(() => {
