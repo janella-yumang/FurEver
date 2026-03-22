@@ -508,6 +508,140 @@ function ensureBaselineData() {
       console.log(`✓ Starter catalog seeded: ${starterProducts.length} products`);
     }
 
+    // Ensure every category and pet type has at least one product on startup.
+    const requiredPetTypes = ['Dog', 'Cat', 'Fish', 'Bird', 'Rabbit', 'Hamster', 'Reptile', 'Other'];
+    const coverageProducts = [
+      {
+        name: 'Rabbit Timothy Hay Pellets', categoryName: 'Pet Food', petType: 'Rabbit', price: 13.99,
+        countInStock: 70, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1583337130417-3346a1f4d7c1?w=400&q=80',
+        description: 'Fiber-rich timothy hay pellets for healthy rabbit digestion.', barcode: 'FE-COVER-001',
+        variants: ['1kg', '2kg'], expirationDate: '2027-02-15'
+      },
+      {
+        name: 'Dried Mealworm Bird Treats', categoryName: 'Treats', petType: 'Bird', price: 9.49,
+        countInStock: 85, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1522926193341-e9ffd686c60f?w=400&q=80',
+        description: 'High-protein dried mealworms for parrots and songbirds.', barcode: 'FE-COVER-002',
+        variants: ['80g', '160g'], expirationDate: '2026-12-01'
+      },
+      {
+        name: 'Floating Turtle Basking Dock', categoryName: 'Habitat', petType: 'Reptile', price: 18.99,
+        countInStock: 40, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef7?w=400&q=80',
+        description: 'Adjustable floating dock with ramp for turtles and terrapins.', barcode: 'FE-COVER-003',
+        variants: ['Small', 'Large'], expirationDate: ''
+      },
+      {
+        name: 'Natural Catnip Plush Mouse', categoryName: 'Toys', petType: 'Cat', price: 6.99,
+        countInStock: 130, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1511044568932-338cba0ad803?w=400&q=80',
+        description: 'Soft plush mouse toy stuffed with organic catnip.', barcode: 'FE-COVER-004',
+        variants: ['Single', '3-pack'], expirationDate: ''
+      },
+      {
+        name: 'Hypoallergenic Puppy Wipes', categoryName: 'Grooming', petType: 'Dog', price: 7.99,
+        countInStock: 95, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1601758125946-6ec2ef64daf8?w=400&q=80',
+        description: 'Fragrance-free wipes for paws, coat, and sensitive skin.', barcode: 'FE-COVER-005',
+        variants: ['40 sheets', '80 sheets'], expirationDate: '2027-03-30'
+      },
+      {
+        name: 'Omega-3 Fish Immune Booster', categoryName: 'Health', petType: 'Fish', price: 15.49,
+        countInStock: 60, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1524704654690-b56c05c78a00?w=400&q=80',
+        description: 'Liquid supplement to support fish immunity and coloration.', barcode: 'FE-COVER-006',
+        variants: ['60ml', '120ml'], expirationDate: '2026-10-20'
+      },
+      {
+        name: 'Universal Travel Pet Carrier', categoryName: 'Accessories', petType: 'Other', price: 39.99,
+        countInStock: 28, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=400&q=80',
+        description: 'Ventilated soft carrier suitable for small pets and exotics.', barcode: 'FE-COVER-007',
+        variants: ['Small', 'Medium'], expirationDate: ''
+      },
+      {
+        name: 'Hamster Exercise Tunnel Set', categoryName: 'Habitat', petType: 'Hamster', price: 17.49,
+        countInStock: 48, lowStockThreshold: 10, image: 'https://images.unsplash.com/photo-1425082661507-3f9c4cba2aae?w=400&q=80',
+        description: 'Expandable tunnel kit to enrich hamster enclosures.', barcode: 'FE-COVER-008',
+        variants: ['6-piece set'], expirationDate: ''
+      }
+    ];
+
+    const getCategoryCounts = () => db.prepare(`
+      SELECT c.name AS categoryName, COUNT(p.id) AS total
+      FROM categories c
+      LEFT JOIN products p ON p.category = c.id
+      GROUP BY c.id, c.name
+    `).all();
+
+    const getPetCounts = () => db.prepare(`
+      SELECT TRIM(COALESCE(petType, '')) AS petType, COUNT(*) AS total
+      FROM products
+      WHERE TRIM(COALESCE(petType, '')) <> ''
+      GROUP BY TRIM(COALESCE(petType, ''))
+    `).all();
+
+    const insertCoverageProduct = db.prepare(`
+      INSERT INTO products (
+        name, category, petType, price, countInStock, lowStockThreshold,
+        image, description, barcode, variants, expirationDate,
+        rating, numReviews, createdAt, updatedAt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    let categoryCountMap = Object.fromEntries(getCategoryCounts().map((row) => [row.categoryName, Number(row.total)]));
+    let petCountMap = Object.fromEntries(getPetCounts().map((row) => [row.petType, Number(row.total)]));
+    let ensuredProducts = 0;
+
+    for (const product of coverageProducts) {
+      const categoryMissing = !categoryCountMap[product.categoryName] || categoryCountMap[product.categoryName] === 0;
+      const petMissing = !petCountMap[product.petType] || petCountMap[product.petType] === 0;
+      if (!categoryMissing && !petMissing) {
+        continue;
+      }
+
+      const existingByBarcode = db.prepare('SELECT id FROM products WHERE barcode = ? LIMIT 1').get(product.barcode);
+      if (existingByBarcode) {
+        categoryCountMap = Object.fromEntries(getCategoryCounts().map((row) => [row.categoryName, Number(row.total)]));
+        petCountMap = Object.fromEntries(getPetCounts().map((row) => [row.petType, Number(row.total)]));
+        continue;
+      }
+
+      insertCoverageProduct.run(
+        product.name,
+        categoryIdsByName[product.categoryName] || null,
+        product.petType,
+        product.price,
+        product.countInStock,
+        product.lowStockThreshold,
+        product.image,
+        product.description,
+        product.barcode,
+        JSON.stringify(product.variants || []),
+        product.expirationDate || '',
+        0,
+        0,
+        now,
+        now
+      );
+      ensuredProducts += 1;
+
+      categoryCountMap[product.categoryName] = (categoryCountMap[product.categoryName] || 0) + 1;
+      petCountMap[product.petType] = (petCountMap[product.petType] || 0) + 1;
+    }
+
+    const missingCategories = Object.keys(categoryIdsByName).filter((name) => !categoryCountMap[name] || categoryCountMap[name] === 0);
+    const missingPetTypes = requiredPetTypes.filter((pet) => !petCountMap[pet] || petCountMap[pet] === 0);
+
+    if (ensuredProducts > 0) {
+      console.log(`✓ Coverage products ensured: ${ensuredProducts} inserted`);
+    }
+    if (missingCategories.length === 0 && missingPetTypes.length === 0) {
+      console.log('✓ Product coverage check passed (all categories and pet types present)');
+    } else {
+      if (missingCategories.length > 0) {
+        console.warn(`⚠ Missing product categories: ${missingCategories.join(', ')}`);
+      }
+      if (missingPetTypes.length > 0) {
+        console.warn(`⚠ Missing pet types: ${missingPetTypes.join(', ')}`);
+      }
+    }
+
     const totalUsers = db.prepare('SELECT COUNT(*) AS cnt FROM users').get().cnt;
     if (totalUsers === 0) {
       const defaultPassword = bcrypt.hashSync('password123', 10);

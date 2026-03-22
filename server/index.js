@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const os = require('os');
+const net = require('net');
 
 // Load env BEFORE route imports so SMTP_* vars are available during transporter init
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -55,16 +56,39 @@ app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/vouchers', vouchersRoutes);
 app.use('/api/v1/migration', migrationRoutes);
 
-const port = process.env.PORT || 4000;
-app.listen(port, '0.0.0.0', () => {
-  const lanIps = getLanIpv4Addresses();
-  console.log(`✓ API running on http://0.0.0.0:${port}`);
+function startServer(preferredPort) {
+  const server = net.createServer();
 
-  if (lanIps.length > 0) {
-    lanIps.forEach((ip) => {
-      console.log(`✓ Access from mobile: http://${ip}:${port}`);
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      const nextPort = Number(preferredPort) + 1;
+      console.warn(`Port ${preferredPort} is in use. Retrying on ${nextPort}...`);
+      startServer(nextPort);
+      return;
+    }
+
+    throw err;
+  });
+
+  server.once('listening', () => {
+    server.close(() => {
+      app.listen(preferredPort, '0.0.0.0', () => {
+        const lanIps = getLanIpv4Addresses();
+        console.log(`✓ API running on http://0.0.0.0:${preferredPort}`);
+
+        if (lanIps.length > 0) {
+          lanIps.forEach((ip) => {
+            console.log(`✓ Access from mobile: http://${ip}:${preferredPort}`);
+          });
+        } else {
+          console.log('✓ Access from mobile: LAN IP not detected');
+        }
+      });
     });
-  } else {
-    console.log('✓ Access from mobile: LAN IP not detected');
-  }
-});
+  });
+
+  server.listen(preferredPort, '0.0.0.0');
+}
+
+const port = Number(process.env.PORT) || 4000;
+startServer(port);

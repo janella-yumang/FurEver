@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "seed:more-products": "node add-more-products.js",
     "migrate:remote": "node migrate-local-sqlite-to-remote.js",
     "migrate:full": "node migrate-full-sqlite-to-remote.js"
   },

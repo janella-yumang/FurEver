@@ -62,15 +62,34 @@ const ProductContainer = () => {
     }, [productsCtg]);
 
     const searchProduct = (text) => {
-        setProductsFiltered(
-            products.filter((i) =>
+        // Start with initialState (all products)
+        let filtered = [...initialState];
+
+        // Apply pet type filter from quick chips
+        if (selectedPetType !== 'All') {
+            filtered = filtered.filter(p => p.petType === selectedPetType);
+        }
+
+        // Apply price range filter
+        filtered = filtered.filter(p => p.price <= priceRange);
+
+        // Apply availability filter
+        if (showInStockOnly) {
+            filtered = filtered.filter(p => p.countInStock > 0);
+        }
+
+        // Apply search text
+        if (text && text.trim().length > 0) {
+            filtered = filtered.filter((i) =>
                 i.name.toLowerCase().includes(text.toLowerCase()) ||
                 (i.petType && i.petType.toLowerCase().includes(text.toLowerCase())) ||
                 (i.category && (typeof i.category === 'string'
                     ? i.category.toLowerCase().includes(text.toLowerCase())
                     : i.category.name && i.category.name.toLowerCase().includes(text.toLowerCase())))
-            )
-        )
+            );
+        }
+
+        setProductsFiltered(filtered);
     }
 
     const onBlur = () => {
@@ -101,8 +120,20 @@ const ProductContainer = () => {
             filtered = filtered.filter(p => p.countInStock > 0);
         }
 
-        setProductsCtg(filtered);
-        setProductsFiltered(filtered);
+        // If user is searching, apply search filter too
+        if (keyword && keyword.trim().length > 0) {
+            filtered = filtered.filter((i) =>
+                i.name.toLowerCase().includes(keyword.toLowerCase()) ||
+                (i.petType && i.petType.toLowerCase().includes(keyword.toLowerCase())) ||
+                (i.category && (typeof i.category === 'string'
+                    ? i.category.toLowerCase().includes(keyword.toLowerCase())
+                    : i.category.name && i.category.name.toLowerCase().includes(keyword.toLowerCase())))
+            );
+            setProductsFiltered(filtered);
+        } else {
+            setProductsCtg(filtered);
+        }
+
         setShowFilters(false);
     };
 
@@ -116,15 +147,14 @@ const ProductContainer = () => {
     };
 
     const changeCtg = (ctg) => {
-        {
-            ctg === "all"
-                ? [setProductsCtg(initialState), setActive(true)]
-                : [
-                    setProductsCtg(
-                        products.filter((i) => (i.category !== null && i.category.id) === ctg),
-                        setActive(true)
-                    ),
-                ];
+        if (ctg === "all") {
+            setProductsCtg(initialState);
+            setActive(true);
+        } else {
+            setProductsCtg(
+                initialState.filter((i) => (i.category !== null && i.category.id) === ctg)
+            );
+            setActive(true);
         }
     };
 
