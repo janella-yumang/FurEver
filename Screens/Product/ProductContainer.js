@@ -62,34 +62,42 @@ const ProductContainer = () => {
     }, [productsCtg]);
 
     const searchProduct = (text) => {
-        // Start with initialState (all products)
-        let filtered = [...initialState];
+        try {
+            // Start with initialState (all products)
+            let filtered = Array.isArray(initialState) ? [...initialState] : [];
 
-        // Apply pet type filter from quick chips
-        if (selectedPetType !== 'All') {
-            filtered = filtered.filter(p => p.petType === selectedPetType);
+            // Apply pet type filter from quick chips
+            if (selectedPetType !== 'All') {
+                filtered = filtered.filter(p => p && p.petType === selectedPetType);
+            }
+
+            // Apply price range filter
+            filtered = filtered.filter(p => p && typeof p.price === 'number' && p.price <= priceRange);
+
+            // Apply availability filter
+            if (showInStockOnly) {
+                filtered = filtered.filter(p => p && p.countInStock > 0);
+            }
+
+            // Apply search text
+            if (text && text.trim().length > 0) {
+                const searchLower = text.toLowerCase();
+                filtered = filtered.filter((i) => {
+                    if (!i) return false;
+                    const nameMatch = i.name && i.name.toLowerCase().includes(searchLower);
+                    const petTypeMatch = i.petType && i.petType.toLowerCase().includes(searchLower);
+                    const categoryMatch = i.category && (typeof i.category === 'string'
+                        ? i.category.toLowerCase().includes(searchLower)
+                        : i.category.name && i.category.name.toLowerCase().includes(searchLower));
+                    return nameMatch || petTypeMatch || categoryMatch;
+                });
+            }
+
+            setProductsFiltered(filtered);
+        } catch (error) {
+            console.error('Search error:', error);
+            setProductsFiltered([]);
         }
-
-        // Apply price range filter
-        filtered = filtered.filter(p => p.price <= priceRange);
-
-        // Apply availability filter
-        if (showInStockOnly) {
-            filtered = filtered.filter(p => p.countInStock > 0);
-        }
-
-        // Apply search text
-        if (text && text.trim().length > 0) {
-            filtered = filtered.filter((i) =>
-                i.name.toLowerCase().includes(text.toLowerCase()) ||
-                (i.petType && i.petType.toLowerCase().includes(text.toLowerCase())) ||
-                (i.category && (typeof i.category === 'string'
-                    ? i.category.toLowerCase().includes(text.toLowerCase())
-                    : i.category.name && i.category.name.toLowerCase().includes(text.toLowerCase())))
-            );
-        }
-
-        setProductsFiltered(filtered);
     }
 
     const onBlur = () => {
@@ -147,14 +155,20 @@ const ProductContainer = () => {
     };
 
     const changeCtg = (ctg) => {
-        if (ctg === "all") {
-            setProductsCtg(initialState);
-            setActive(true);
-        } else {
-            setProductsCtg(
-                initialState.filter((i) => (i.category !== null && i.category.id) === ctg)
-            );
-            setActive(true);
+        try {
+            if (ctg === "all") {
+                setProductsCtg(Array.isArray(initialState) ? [...initialState] : []);
+                setActive(true);
+            } else {
+                const filtered = (Array.isArray(initialState) ? initialState : []).filter(
+                    (i) => i && i.category && i.category !== null && i.category.id === ctg
+                );
+                setProductsCtg(filtered);
+                setActive(true);
+            }
+        } catch (error) {
+            console.error('Category filter error:', error);
+            setProductsCtg([]);
         }
     };
 
