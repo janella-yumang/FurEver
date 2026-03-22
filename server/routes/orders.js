@@ -80,24 +80,11 @@ const sendOrderStatusEmail = async (user, order, status) => {
     'Cancelled': '❌ Your order has been cancelled.',
   };
   try {
-    await transporter.sendMail({
-      from: `"FurEver Pet Shop" <${fromEmail}>`,
-      to: user.email,
-      subject: `🐾 Order Update - ${status}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:auto">
-        <h2 style="color:#FF8C42">🐾 Order Status Update</h2>
-        <p>Hi <strong>${user.name || 'Customer'}</strong>,</p>
-        <p>${statusMessages[status] || 'Your order status has been updated.'}</p>
-        <div style="background:#FFF3E0;border-radius:12px;padding:16px;margin:16px 0">
-          <p><strong>Order ID:</strong> #${order._id || order.id}</p>
-          <p><strong>Status:</strong> ${status}</p>
-          <p><strong>Total:</strong> ₱${(order.totalPrice || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
-        </div>
-        <p style="color:#666;font-size:14px">Thank you for shopping at FurEver! 🐾</p>
-      </div>`,
-    });
-    console.log(`Order status email sent to ${user.email}: ${status}`);
-  } catch (err) { console.error('Order status email error:', err.message); }
+    // Only send push notifications for order status, not emails
+    // Email notifications are disabled to prevent timeouts
+    // Push notifications will be sent separately below
+    console.log(`Order status updated for ${user.email}: ${status}`);
+  } catch (err) { console.error('Order status notification error:', err.message); }
 };
 
 function isSupportedPushToken(token = '') {
