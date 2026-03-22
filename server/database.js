@@ -2,52 +2,24 @@
 const Database = require('better-sqlite3');
 const fs = require('fs');
 
-// One-time copy from secret file to persistent disk (for Render free plan)
 const DB_FILENAME = 'furever.db';
 const path = require('path');
-const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const DATA_DIR = IS_PRODUCTION ? '/data' : path.resolve(__dirname);
-const persistentDbPath = path.join(DATA_DIR, DB_FILENAME);
-if (
-  process.env.NODE_ENV === 'production' &&
-  fs.existsSync('/etc/secrets/furever.db') &&
-  !fs.existsSync(persistentDbPath)
-) {
-  try {
-    fs.copyFileSync('/etc/secrets/furever.db', persistentDbPath);
-    console.log('✓ Copied furever.db from secret to persistent disk');
-  } catch (err) {
-    console.error('Failed to copy furever.db to persistent disk:', err);
-  }
-}
 
 const bcrypt = require('bcryptjs');
 
 const requestedDbPath = String(process.env.SQLITE_DB_PATH || '').trim();
-const defaultDbPath = IS_PRODUCTION ? persistentDbPath : path.resolve(__dirname, DB_FILENAME);
+const defaultDbPath = path.resolve(__dirname, DB_FILENAME);
 const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
 
-if (IS_PRODUCTION) {
-  // Only attempt to create the parent directory if it's not the root persistent disk mount point
-  const parentDir = path.dirname(selectedDbPath);
-  if (parentDir !== DATA_DIR && parentDir !== '/data') {
-    try {
-      fs.mkdirSync(parentDir, { recursive: true });
-    } catch (err) {
-      if (err.code !== 'EEXIST') {
-        console.error('Failed to create persistent data subdirectory:', err);
-        process.exit(1);
-      }
-    }
-  }
+// Ensure the directory for the database file exists
+const dbDir = path.dirname(selectedDbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
 }
+
 const db = new Database(selectedDbPath);
 
-
 console.log(`[db] SQLite path: ${selectedDbPath}`);
-if (IS_PRODUCTION && !selectedDbPath.startsWith(DATA_DIR)) {
-  console.warn(`[db] Running on non-persistent storage. Mount Render disk at ${DATA_DIR} to keep data after restarts.`);
-}
 
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
