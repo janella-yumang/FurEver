@@ -50,7 +50,7 @@ async function run() {
     process.exit(1);
   }
 
-  const exportUrl = `${args.remote.replace(/\/$/, '')}/migration/export`;
+  const exportUrl = `${args.remote.replace(/\/$/, '')}/api/v1/migration/export`;
   console.log(`📥 Downloading database from: ${exportUrl}`);
 
   try {
