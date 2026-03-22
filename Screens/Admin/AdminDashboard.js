@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { useFocusEffect } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
@@ -32,63 +33,96 @@ const AdminDashboard = () => {
         outOfStock: 0,
     });
 
+    const getAuthTokenCandidates = useCallback(async () => {
+        const secureToken = await SecureStore.getItemAsync("jwt");
+        const asyncToken = await AsyncStorage.getItem("jwt");
+        return [secureToken, asyncToken].filter((value, index, arr) => !!value && arr.indexOf(value) === index);
+    }, []);
+
     useFocusEffect(
         useCallback(() => {
             let isMounted = true;
 
-            AsyncStorage.getItem("jwt")
-                .then((res) => {
-                    if (isMounted) {
-                        setToken(res);
-                    }
-                })
-                .catch(() => {});
+            const loadDashboard = async () => {
+                const tokenCandidates = await getAuthTokenCandidates();
+                const authToken = tokenCandidates[0] || "";
+                if (isMounted) {
+                    setToken(authToken);
+                }
 
-            // Fetch products
-            axios
-                .get(`${baseURL}products`)
-                .then((res) => {
-                    if (!isMounted) return;
-                    const data = res.data || [];
-                    setProducts(data);
-                    const outOfStock = data.filter(
-                        (p) => p.countInStock === 0 || !p.countInStock
-                    ).length;
-                    setStats((prev) => ({
-                        ...prev,
-                        totalProducts: data.length,
-                        outOfStock,
-                    }));
-                    setLoading(false);
-                })
-                .catch(() => {
-                    if (!isMounted) return;
-                    setProducts([]);
-                    setLoading(false);
-                });
+                // Fetch products
+                axios
+                    .get(`${baseURL}products`)
+                    .then((res) => {
+                        if (!isMounted) return;
+                        const data = res.data || [];
+                        setProducts(data);
+                        const outOfStock = data.filter(
+                            (p) => p.countInStock === 0 || !p.countInStock
+                        ).length;
+                        setStats((prev) => ({
+                            ...prev,
+                            totalProducts: data.length,
+                            outOfStock,
+                        }));
+                        setLoading(false);
+                    })
+                    .catch(() => {
+                        if (!isMounted) return;
+                        setProducts([]);
+                        setLoading(false);
+                    });
 
-            // Fetch orders
-            axios
-                .get(`${baseURL}orders`)
-                .then((res) => {
-                    if (!isMounted) return;
-                    const data = res.data || [];
-                    setOrders(data);
-                    setStats((prev) => ({
-                        ...prev,
-                        totalOrders: data.length,
-                    }));
-                })
-                .catch(() => {
+                // Fetch orders (requires auth)
+                if (!authToken) {
                     if (isMounted) {
                         setOrders([]);
+                        setStats((prev) => ({
+                            ...prev,
+                            totalOrders: 0,
+                        }));
                     }
-                });
+                    return;
+                }
+
+                axios
+                    .get(`${baseURL}orders`, {
+                        headers: { Authorization: `Bearer ${authToken}` },
+                    })
+                    .then((res) => {
+                        if (!isMounted) return;
+                        const data = res.data || [];
+                        setOrders(data);
+                        setStats((prev) => ({
+                            ...prev,
+                            totalOrders: data.length,
+                        }));
+                    })
+                    .catch(() => {
+                        if (isMounted) {
+                            setOrders([]);
+                            setStats((prev) => ({
+                                ...prev,
+                                totalOrders: 0,
+                            }));
+                        }
+                    });
+            };
+
+            loadDashboard().catch(() => {
+                if (isMounted) {
+                    setOrders([]);
+                    setStats((prev) => ({
+                        ...prev,
+                        totalOrders: 0,
+                    }));
+                }
+            });
 
             return () => {
                 isMounted = false;
             };
-        }, [])
+        }, [getAuthTokenCandidates])
     );
 
     const deleteProduct = (id) => {

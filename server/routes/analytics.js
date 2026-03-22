@@ -4,12 +4,76 @@ const { db } = require('../database');
 
 const router = express.Router();
 
+function getIsoBounds(range = 'monthly') {
+  const now = new Date();
+  const end = new Date(now);
+  const start = new Date(now);
+
+  switch (String(range).toLowerCase()) {
+    case 'daily':
+    case 'day': {
+      start.setHours(0, 0, 0, 0);
+      break;
+    }
+    case 'weekly':
+    case 'week': {
+      const day = start.getDay();
+      const diff = day === 0 ? 6 : day - 1;
+      start.setDate(start.getDate() - diff);
+      start.setHours(0, 0, 0, 0);
+      break;
+    }
+    case 'yearly':
+    case 'year': {
+      start.setMonth(0, 1);
+      start.setHours(0, 0, 0, 0);
+      break;
+    }
+    case 'monthly':
+    case 'month':
+    default: {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      break;
+    }
+  }
+
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+function buildSalesSummary(startDate, endDate) {
+  const totals = db.prepare(`
+    SELECT COALESCE(SUM(totalPrice), 0) AS revenue, COUNT(*) AS count
+    FROM orders
+    WHERE status != 'Cancelled' AND dateOrdered >= ? AND dateOrdered <= ?
+  `).get(startDate, endDate);
+
+  return {
+    revenue: Number(totals?.revenue || 0),
+    count: Number(totals?.count || 0),
+  };
+}
+
 // ─── SALES BY DATE RANGE ────────────────────────────────────
 router.get('/sales', (req, res) => {
   try {
-    const { startDate, endDate, period } = req.query;
-    const data = Order.salesByDate(startDate, endDate, period || 'day');
-    return res.status(200).json(data);
+    const { startDate, endDate, period, range } = req.query;
+    const bounds = (startDate && endDate)
+      ? { startDate, endDate }
+      : getIsoBounds(range || 'monthly');
+
+    const grouping = period || ((String(range).toLowerCase() === 'yearly' || String(range).toLowerCase() === 'year') ? 'month' : 'day');
+    const salesByDate = Order.salesByDate(bounds.startDate, bounds.endDate, grouping);
+    const totals = buildSalesSummary(bounds.startDate, bounds.endDate);
+
+    return res.status(200).json({
+      range: range || null,
+      period: grouping,
+      startDate: bounds.startDate,
+      endDate: bounds.endDate,
+      totals,
+      salesByDate,
+    });
   } catch (err) {
     console.error('Sales analytics error:', err);
     return res.status(500).json({ message: 'Failed to fetch sales analytics.' });
@@ -54,8 +118,14 @@ router.get('/best-sellers', (req, res) => {
 router.get('/customer-trends', (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const data = Order.topCustomers(limit);
-    return res.status(200).json(data);
+    const topCustomers = Order.topCustomers(limit);
+    const statusDistribution = Order.statusDistribution();
+    const paymentMethods = Order.paymentMethodStats();
+    return res.status(200).json({
+      topCustomers,
+      statusDistribution,
+      paymentMethods,
+    });
   } catch (err) {
     console.error('Customer trends error:', err);
     return res.status(500).json({ message: 'Failed to fetch customer trends.' });
@@ -77,11 +147,16 @@ router.get('/category-sales', (req, res) => {
 router.get('/product-distribution', (req, res) => {
   try {
     const data = db.prepare(
-      `SELECT c.name AS category, COUNT(p.id) AS count
+      `SELECT c.id AS categoryId, c.name AS category, COUNT(p.id) AS productCount, COALESCE(SUM(p.countInStock), 0) AS totalStock
        FROM products p LEFT JOIN categories c ON p.category = c.id
        GROUP BY p.category
-       ORDER BY count DESC`
-    ).all().map(r => ({ _id: r.category || 'Uncategorized', count: r.count }));
+       ORDER BY productCount DESC`
+    ).all().map(r => ({
+      _id: r.categoryId ? String(r.categoryId) : 'uncategorized',
+      name: r.category || 'Uncategorized',
+      productCount: Number(r.productCount || 0),
+      totalStock: Number(r.totalStock || 0),
+    }));
     return res.status(200).json(data);
   } catch (err) {
     console.error('Product distribution error:', err);
@@ -97,12 +172,42 @@ router.get('/dashboard-summary', (req, res) => {
     const totalUsers = db.prepare('SELECT COUNT(*) AS cnt FROM users').get().cnt;
     const totalProducts = db.prepare('SELECT COUNT(*) AS cnt FROM products').get().cnt;
     const pendingOrders = db.prepare("SELECT COUNT(*) AS cnt FROM orders WHERE status = 'Pending'").get().cnt;
+    const lowStock = db.prepare('SELECT COUNT(*) AS cnt FROM products WHERE countInStock <= lowStockThreshold').get().cnt;
+
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const weekStart = new Date(now);
+    const day = weekStart.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    weekStart.setDate(weekStart.getDate() - diff);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    const today = buildSalesSummary(todayStart.toISOString(), now.toISOString());
+    const thisWeek = buildSalesSummary(weekStart.toISOString(), now.toISOString());
+    const thisMonth = buildSalesSummary(monthStart.toISOString(), now.toISOString());
+    const thisYear = buildSalesSummary(yearStart.toISOString(), now.toISOString());
+    const allTime = Order.salesTotals();
 
     const statusDist = Order.statusDistribution();
     const paymentDist = Order.paymentMethodStats();
 
     return res.status(200).json({
       totalOrders, totalRevenue, totalUsers, totalProducts, pendingOrders,
+      lowStock,
+      today,
+      thisWeek,
+      thisMonth,
+      thisYear,
+      allTime: {
+        revenue: Number(allTime?.totalRevenue || 0),
+        count: Number(allTime?.totalOrders || 0),
+        avgOrderValue: Number(allTime?.avgOrderValue || 0),
+      },
       statusDistribution: statusDist,
       paymentMethodDistribution: paymentDist,
     });
