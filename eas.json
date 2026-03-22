@@ -19,8 +19,9 @@
       "distribution": "internal",
       "env": {
         "EXPO_USE_COMMUNITY_AUTOLINKING": "1",
-        "NODE_ENV": "production",
-        "EXPO_PUBLIC_API_URL": "https://furever-1-lekw.onrender.com"
+        "NODE_ENV": "development",
+        "EXPO_PUBLIC_API_URL": "https://furever-1-lekw.onrender.com",
+        "EAS_SKIP_AUTO_FINGERPRINT": "1"
       }
     },
     "production": {
