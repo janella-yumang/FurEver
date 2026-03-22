@@ -74,27 +74,33 @@ const sendVerificationEmail = async (email, code) => {
   }
   const fromEmail = process.env.SMTP_USER || 'noreply@furever.com';
   try {
-    const info = await transporter.sendMail({
-      from: `"FurEver Pet Shop" <${fromEmail}>`,
-      to: email,
-      subject: `🐾 Your Verification Code: ${code}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;text-align:center">
-        <h2 style="color:#FF8C42">🐾 Welcome to FurEver!</h2>
-        <p style="font-size:16px">Your email verification code is:</p>
-        <div style="background:#FFF3E0;border-radius:12px;padding:24px;margin:20px 0">
-          <span style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#FF8C42">${code}</span>
-        </div>
-        <p style="color:#666;font-size:14px">This code expires in <strong>10 minutes</strong>.</p>
-      </div>`,
-    });
+    // Add timeout to prevent email service from hanging
+    const info = await Promise.race([
+      transporter.sendMail({
+        from: `"FurEver Pet Shop" <${fromEmail}>`,
+        to: email,
+        subject: `🐾 Your Verification Code: ${code}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;text-align:center">
+          <h2 style="color:#FF8C42">🐾 Welcome to FurEver!</h2>
+          <p style="font-size:16px">Your email verification code is:</p>
+          <div style="background:#FFF3E0;border-radius:12px;padding:24px;margin:20px 0">
+            <span style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#FF8C42">${code}</span>
+          </div>
+          <p style="color:#666;font-size:14px">This code expires in <strong>10 minutes</strong>.</p>
+        </div>`,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Email send timeout')), 5000))
+    ]);
     const previewUrl = nodemailer.getTestMessageUrl(info) || null;
     console.log('Verification email sent to:', email);
     if (previewUrl) {
       console.log('Ethereal preview URL:', previewUrl);
     }
     return { delivered: true, mode: emailMode, previewUrl };
-  } catch (err) { console.error('Verification email error:', err.message); }
-  return { delivered: false, mode: emailMode, error: 'send-failed' };
+  } catch (err) { 
+    console.error('Verification email error:', err.message); 
+    return { delivered: false, mode: emailMode, error: 'send-failed' };
+  }
 };
 
 const safeParseArray = (value) => {
@@ -128,9 +134,18 @@ router.post('/register', upload.single('image'), async (req, res) => {
       image: '', emailVerified: !REQUIRE_EMAIL_VERIFICATION, verificationCode, verificationExpires,
     });
 
+    // Send email asynchronously without blocking the response
     let emailResult = { delivered: false, mode: emailMode };
     if (REQUIRE_EMAIL_VERIFICATION && verificationCode) {
-      emailResult = await sendVerificationEmail(user.email, verificationCode);
+      // Fire and forget - don't wait for email to complete
+      sendVerificationEmail(user.email, verificationCode)
+        .then(result => {
+          emailResult = result;
+          console.log(`[Email] Async email sent for ${user.email}`);
+        })
+        .catch(err => {
+          console.error(`[Email] Async email failed for ${user.email}:`, err.message);
+        });
     }
 
     const response = {
@@ -211,7 +226,17 @@ router.post('/resend-code', async (req, res) => {
       verificationCode: newCode,
       verificationExpires: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     });
-    const emailResult = await sendVerificationEmail(user.email, newCode);
+    
+    // Send email asynchronously without blocking the response
+    let emailResult = { delivered: false, mode: emailMode };
+    sendVerificationEmail(user.email, newCode)
+      .then(result => {
+        emailResult = result;
+        console.log(`[Email] Async resend email sent to ${user.email}`);
+      })
+      .catch(err => {
+        console.error(`[Email] Async resend email failed for ${user.email}:`, err.message);
+      });
 
     const response = { message: 'New verification code sent to your email.' };
     if (!IS_PRODUCTION) {
