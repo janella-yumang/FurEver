@@ -8,6 +8,7 @@
     "dev": "nodemon index.js",
     "seed:more-products": "node add-more-products.js",
     "seed:vouchers": "node add-more-vouchers.js",
+    "seed:users": "node add-users.js",
     "migrate:remote": "node migrate-local-sqlite-to-remote.js",
     "migrate:full": "node migrate-full-sqlite-to-remote.js"
   },
