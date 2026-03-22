@@ -10,6 +10,13 @@ const bcrypt = require('bcryptjs');
 const requestedDbPath = String(process.env.SQLITE_DB_PATH || '').trim();
 const defaultDbPath = path.resolve(__dirname, DB_FILENAME);
 const selectedDbPath = path.resolve(requestedDbPath || defaultDbPath);
+
+// Ensure the directory for the database file exists
+const dbDir = path.dirname(selectedDbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 const db = new Database(selectedDbPath);
 
 console.log(`[db] SQLite path: ${selectedDbPath}`);
