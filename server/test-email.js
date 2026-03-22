@@ -26,7 +26,7 @@ async function main() {
   try {
     const info = await transporter.sendMail({
       from: '"FurEver Pet Shop" <' + process.env.SMTP_USER + '>',
-      to: 'erpemem.pascua@gmail.com',
+      to: 'jannellayumang@gmail.com',
       subject: 'FurEver Verification Test - ' + new Date().toLocaleTimeString(),
       html: '<h1>Test Verification</h1><p>Code: <b>123456</b></p><p>If you see this, verification emails will work!</p>',
     });
