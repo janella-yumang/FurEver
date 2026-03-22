@@ -464,4 +464,30 @@ router.post('/chunked-import/finalize', requireImportSecret, (_req, res) => {
   }
 });
 
+// ─── EXPORT ENDPOINT ───────────────────────────────────────────
+// GET /migration/export - Export all database data for backup/migration
+router.get('/export', (req, res) => {
+  try {
+    const data = {
+      categories: db.prepare('SELECT * FROM categories').all(),
+      users: db.prepare('SELECT * FROM users').all(),
+      products: db.prepare('SELECT * FROM products').all(),
+      vouchers: db.prepare('SELECT * FROM vouchers').all(),
+      orders: db.prepare('SELECT * FROM orders').all(),
+      order_items: db.prepare('SELECT * FROM order_items').all(),
+      reviews: db.prepare('SELECT * FROM reviews').all(),
+      notifications: db.prepare('SELECT * FROM notifications').all(),
+      voucher_claims: db.prepare('SELECT * FROM voucher_claims').all(),
+    };
+
+    // Send as JSON file download
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="furever-export-${new Date().toISOString().split('T')[0]}.json"`);
+    res.json(data);
+  } catch (err) {
+    console.error('Export failed:', err);
+    res.status(500).json({ message: 'Export failed.', error: err.message });
+  }
+});
+
 module.exports = router;
