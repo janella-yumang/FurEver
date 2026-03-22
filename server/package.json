@@ -8,8 +8,7 @@
     "dev": "nodemon index.js",
     "seed:more-products": "node add-more-products.js",
     "migrate:remote": "node migrate-local-sqlite-to-remote.js",
-    "migrate:full": "node migrate-full-sqlite-to-remote.js",
-    "download:friend": "node download-friend-database.js"
+    "migrate:full": "node migrate-full-sqlite-to-remote.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
