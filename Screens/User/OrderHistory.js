@@ -36,7 +36,9 @@ const OrderHistory = () => {
     const getAuthToken = async () => {
         const secureToken = await SecureStore.getItemAsync('jwt');
         if (secureToken) return secureToken;
-        return AsyncStorage.getItem('jwt');
+        
+        const asyncToken = await AsyncStorage.getItem('jwt');
+        return asyncToken || null;
     };
 
     const focusedOrderId = route.params?.focusOrderId

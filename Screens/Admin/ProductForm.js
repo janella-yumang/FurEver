@@ -87,7 +87,7 @@ const ProductForm = (props) => {
                 setSizeVariants(editItem.variants ? editItem.variants.join(', ') : '');
                 setError(null);
             }
-            AsyncStorage.getItem("jwt")
+            await AsyncStorage.getItem("jwt")
                 .then((res) => {
                     setToken(res)
                 })

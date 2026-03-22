@@ -44,7 +44,7 @@ const Notifications = () => {
   const getAuthToken = async () => {
     const secureToken = await SecureStore.getItemAsync('jwt');
     if (secureToken) return secureToken;
-    return AsyncStorage.getItem('jwt');
+    return await AsyncStorage.getItem('jwt');
   };
 
   const fetchNotifications = useCallback(async () => {
