@@ -21,33 +21,46 @@ const resolveImageUri = (image) => {
 
 const SearchedProduct = ({ productsFiltered }) => {
     const navigation = useNavigation();
+    
+    // Ensure productsFiltered is an array
+    const safeProduts = Array.isArray(productsFiltered) ? productsFiltered : [];
+    
     return (
 
         <View style={{ width: width, backgroundColor: '#F8FAFC', flex: 1 }}>
-            {productsFiltered.length > 0 ? (
+            {safeProduts.length > 0 ? (
 
                 <Surface style={styles.resultsSurface}>
                     <FlatList
-                        data={productsFiltered}
+                        data={safeProduts}
                         keyboardShouldPersistTaps="handled"
-                        renderItem={({ item }) =>
-                            <TouchableOpacity
-                                style={styles.resultItem}
-                                onPress={() => navigation.navigate("Product Detail", { item })}
-                            >
-                                <Surface style={styles.resultContent}>
-                                    <Avatar.Image size={24}
-                                        source={{
-                                            uri: resolveImageUri(item.image)
-                                        }} />
-                                    <Text variant="labelMedium" numberOfLines={1} ellipsizeMode="tail" style={styles.productName}>
-                                        {item.name}
-                                    </Text>
-                                </Surface>
+                        renderItem={({ item }) => {
+                            if (!item) return null;
+                            return (
+                                <TouchableOpacity
+                                    style={styles.resultItem}
+                                    onPress={() => navigation.navigate("Product Detail", { item })}
+                                >
+                                    <Surface style={styles.resultContent}>
+                                        <Avatar.Image 
+                                            size={24}
+                                            source={{
+                                                uri: resolveImageUri(item.image)
+                                            }}
+                                            onError={() => {
+                                                // Silently handle image load errors
+                                            }}
+                                        />
+                                        <Text variant="labelMedium" numberOfLines={1} ellipsizeMode="tail" style={styles.productName}>
+                                            {item.name || 'Unknown Product'}
+                                        </Text>
+                                    </Surface>
 
-                            </TouchableOpacity>}
-
-                        keyExtractor={item => item._id} />
+                                </TouchableOpacity>
+                            );
+                        }}
+                        keyExtractor={(item, index) => (item?._id || item?.id || `${index}`).toString()}
+                    />
                 </Surface >
             ) : (
                 <View style={styles.center}>
