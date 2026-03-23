@@ -19,6 +19,7 @@
     },
     "android": {
       "permissions": [
+        "POST_NOTIFICATIONS",
         "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
@@ -32,7 +33,8 @@
       },
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
-      "package": "com.ERP15.Furever"
+      "package": "com.ERP15.Furever",
+      "runtimeVersion": "1.0.0"
     },
     "plugins": [
       "expo-web-browser",
@@ -45,6 +47,9 @@
         "projectId": "86b9ade3-593f-4931-a07d-3180d5a06cd2"
       }
     },
-    "owner": "erp15"
+    "owner": "erp15",
+    "updates": {
+      "url": "https://u.expo.dev/86b9ade3-593f-4931-a07d-3180d5a06cd2"
+    }
   }
 }

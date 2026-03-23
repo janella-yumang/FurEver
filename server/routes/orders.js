@@ -95,6 +95,37 @@ function resolveFcmTokenForUser(user) {
   return isSupportedPushToken(user.pushToken) ? user.pushToken : null;
 }
 
+function resolveOrderUserId(order) {
+  const value = order?.userId ?? order?.user ?? null;
+  if (!value) return null;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const asString = String(value).trim();
+    return asString || null;
+  }
+  if (typeof value === 'object') {
+    const objectId = value._id || value.id || null;
+    if (!objectId) return null;
+    const asString = String(objectId).trim();
+    return asString || null;
+  }
+  return null;
+}
+
+function normalizeOrderStatus(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const lowered = raw.toLowerCase();
+  if (lowered === 'pending') return 'Pending';
+  if (lowered === 'processing') return 'Processing';
+  if (lowered === 'shipped') return 'Shipped';
+  if (lowered === 'delivered') return 'Delivered';
+  if (lowered === 'cancelled') return 'Cancelled';
+  if (lowered === 'canceled') return 'Canceled';
+
+  return raw;
+}
+
 // ─── GET ALL ORDERS ─────────────────────────────────────────
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -349,19 +380,25 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
     const isAdmin = !!req.user.isAdmin;
-    const isOwner = String(order.userId) === String(req.user.id || req.user._id);
+    const orderUserId = resolveOrderUserId(order);
+    const isOwner = !!orderUserId && String(orderUserId) === String(req.user.id || req.user._id);
     if (!isAdmin && !isOwner) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
     const { status, shippingAddress1, shippingAddress2, phone, paymentMethod } = req.body;
+    const normalizedStatus = normalizeOrderStatus(status);
 
-    if (!isAdmin && status && !['Delivered', 'Canceled', 'Cancelled'].includes(status)) {
+    if (isAdmin && normalizedStatus && ['Delivered', 'Canceled', 'Cancelled'].includes(normalizedStatus)) {
+      return res.status(403).json({ message: 'Delivered/Canceled status can only be set by the customer.' });
+    }
+
+    if (!isAdmin && normalizedStatus && !['Delivered', 'Canceled', 'Cancelled'].includes(normalizedStatus)) {
       return res.status(403).json({ message: 'Customers can only confirm delivery or cancel their own orders.' });
     }
 
     const updates = {};
-    if (status) updates.status = status;
+    if (normalizedStatus) updates.status = normalizedStatus;
     if (shippingAddress1 !== undefined) updates.shippingAddress1 = shippingAddress1;
     if (shippingAddress2 !== undefined) updates.shippingAddress2 = shippingAddress2;
     if (phone !== undefined) updates.phone = phone;
@@ -369,22 +406,23 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     order = await Order.update(req.params.id, updates);
 
-    if (status && order.userId) {
-      const userObj = await User.findById(order.userId);
+    if (normalizedStatus && orderUserId) {
+      const userObj = await User.findById(orderUserId);
       if (userObj) {
-        sendOrderStatusEmail(userObj, order, status);
+        sendOrderStatusEmail(userObj, order, normalizedStatus);
         // Map status to notification type
         const statusTypeMap = {
           'Pending': 'order_confirmed',
           'Processing': 'order_processing',
           'Shipped': 'order_shipped',
           'Delivered': 'order_delivered',
+          'Canceled': 'order_canceled',
           'Cancelled': 'order_canceled',
         };
         await Notification.create({
-          user: userObj.id, type: statusTypeMap[status] || 'order_confirmed',
-          title: `Order ${status}`,
-          message: `Your order #${order._id} status has been updated to ${status}.`,
+          user: userObj.id, type: statusTypeMap[normalizedStatus] || 'order_confirmed',
+          title: `Order ${normalizedStatus}`,
+          message: `Your order #${order._id} status has been updated to ${normalizedStatus}.`,
           orderId: order.id,
         });
 
@@ -394,12 +432,12 @@ router.put('/:id', requireAuth, async (req, res) => {
           const pushResult = await sendPushMessages([
             {
               token: userFcmToken,
-              title: `Order ${status}`,
-              body: `Your order #${order._id} status has been updated to ${status}.`,
+              title: `Order ${normalizedStatus}`,
+              body: `Your order #${order._id} status has been updated to ${normalizedStatus}.`,
               data: {
-                type: statusTypeMap[status] || 'order_confirmed',
+                type: statusTypeMap[normalizedStatus] || 'order_confirmed',
                 orderId: order.id,
-                status,
+                status: normalizedStatus,
               },
             },
           ]);
@@ -416,7 +454,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       }
 
       // Notify admins for delivered orders
-      if (status === 'Delivered') {
+      if (normalizedStatus === 'Delivered') {
         const admins = (await User.find()).filter(u => u.isAdmin);
         const adminPushMessages = [];
         for (const admin of admins) {

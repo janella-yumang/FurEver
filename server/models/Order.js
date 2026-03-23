@@ -39,6 +39,13 @@ const Order = {
         .sort({ dateOrdered: -1 });
 
       return addIds(docs).map((order) => {
+        if (order.userId && typeof order.userId === 'object') {
+          order.user = {
+            _id: String(order.userId._id || order.userId.id || ''),
+            name: order.userId.name || '',
+            email: order.userId.email || '',
+          };
+        }
         order.orderItems = order.items || [];
         return order;
       });

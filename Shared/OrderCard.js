@@ -29,6 +29,14 @@ const statuses = [
   { name: "Cancelled", code: "Cancelled" },
 ];
 
+const ADMIN_EDITABLE_STATUSES = [
+  { name: "Pending", code: "Pending" },
+  { name: "Processing", code: "Processing" },
+  { name: "Shipped", code: "Shipped" },
+];
+
+const CUSTOMER_CONTROLLED_STATUSES = new Set(['Delivered', 'Canceled', 'Cancelled']);
+
 const STATUS_CODES = new Set(statuses.map((s) => s.code));
 
 const normalizeStatus = (value) => {
@@ -38,6 +46,33 @@ const normalizeStatus = (value) => {
   if (raw.toLowerCase() === 'cancelled') return 'Cancelled';
   if (raw.toLowerCase() === 'canceled') return 'Canceled';
   return 'Pending';
+};
+
+const toDisplayText = (value, fallback = 'N/A') => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || fallback;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+};
+
+const getEntityId = (value, fallback = 'N/A') => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const asString = String(value).trim();
+    return asString || fallback;
+  }
+  if (typeof value === 'object') {
+    const objectId = value._id || value.id || value.userId;
+    if (objectId === null || objectId === undefined) return fallback;
+    const asString = String(objectId).trim();
+    return asString || fallback;
+  }
+  return fallback;
 };
 
 const OrderCard = ({ item = {}, update }) => {
@@ -76,6 +111,7 @@ const OrderCard = ({ item = {}, update }) => {
   
   const normalizedItemStatus = normalizeStatus(item?.status);
   const cfg = STATUS_CONFIG[normalizedItemStatus] || STATUS_CONFIG.Pending;
+  const statusLockedForAdmin = CUSTOMER_CONTROLLED_STATUSES.has(normalizedItemStatus);
 
   useEffect(() => {
     const loadToken = async () => {
@@ -146,9 +182,15 @@ const OrderCard = ({ item = {}, update }) => {
       });
   };
 
-  const customerName = item?.user?.name || item?.userName || 'Unknown customer';
-  const customerEmail = item?.user?.email || item?.userEmail || 'No email';
-  const customerId = item?.user?._id || item?.userId || item?.user || 'N/A';
+  const customerName = toDisplayText(item?.user?.name || item?.userId?.name || item?.userName, 'Unknown customer');
+  const customerEmail = toDisplayText(item?.user?.email || item?.userId?.email || item?.userEmail, 'No email');
+  const customerId = getEntityId(item?.user?._id || item?.userId || item?.user, 'N/A');
+  const shippingAddress = [
+    toDisplayText(item?.shippingAddress1, ''),
+    toDisplayText(item?.shippingAddress2, ''),
+  ]
+    .filter(Boolean)
+    .join(' ');
   const getOrderItems = () => {
     if (Array.isArray(item?.orderItems)) return item.orderItems;
     return [];
@@ -174,9 +216,7 @@ const OrderCard = ({ item = {}, update }) => {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Delivery</Text>
-        <Text style={styles.detailText}>
-          {item.shippingAddress1 || ''} {item.shippingAddress2 || ''}
-        </Text>
+        <Text style={styles.detailText}>{shippingAddress || 'No delivery address'}</Text>
         {item.city ? <Text style={styles.subtleText}>City: {item.city}</Text> : null}
         {item.country ? <Text style={styles.subtleText}>Country: {item.country}</Text> : null}
       </View>
@@ -200,7 +240,7 @@ const OrderCard = ({ item = {}, update }) => {
             return (
               <View key={`${oi.id || idx}`} style={styles.orderItemRow}>
                 <View style={styles.orderItemInfo}>
-                  <Text style={styles.orderItemName} numberOfLines={1}>{oi.name || 'Unknown'}</Text>
+                  <Text style={styles.orderItemName} numberOfLines={1}>{toDisplayText(oi.name, 'Unknown')}</Text>
                   <Text style={styles.orderItemQuantity}>Qty: {oi.quantity || 1}</Text>
                 </View>
                 <Text style={styles.orderItemPrice}>₱{(parseFloat(oi.price || 0) * (oi.quantity || 1)).toFixed(2)}</Text>
@@ -218,13 +258,16 @@ const OrderCard = ({ item = {}, update }) => {
 
       {update ? (
         <View style={styles.actionsWrap}>
+          {statusLockedForAdmin ? (
+            <Text style={styles.lockedStatusHint}>Delivered/Canceled status is customer-controlled.</Text>
+          ) : null}
           <Picker
             style={styles.statusPicker}
             selectedValue={normalizeStatus(statusChange)}
             onValueChange={(value) => setStatusChange(normalizeStatus(value))}
-            enabled={!updating}
+            enabled={!updating && !statusLockedForAdmin}
           >
-            {statuses.map((s) => (
+            {ADMIN_EDITABLE_STATUSES.map((s) => (
               <Picker.Item key={s.code} label={s.name} value={s.code} />
             ))}
           </Picker>
@@ -232,7 +275,7 @@ const OrderCard = ({ item = {}, update }) => {
             secondary
             large
             onPress={updateOrder}
-            disabled={updating}
+            disabled={updating || statusLockedForAdmin}
           >
             {updating ? (
               <ActivityIndicator size="small" color="white" />
@@ -326,6 +369,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     borderRadius: 8,
     marginBottom: 10,
+  },
+  lockedStatusHint: {
+    marginBottom: 8,
+    color: '#B45309',
+    fontSize: 12,
+    fontWeight: '600',
   },
   updateBtnText: {
     color: 'white',

@@ -18,6 +18,7 @@ import * as SecureStore from "expo-secure-store";
 import { useFocusEffect } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
+import { jwtDecode } from "jwt-decode";
 
 const { width, height } = Dimensions.get("window");
 
@@ -138,26 +139,72 @@ const AdminDashboard = () => {
             {
                 text: "Delete",
                 style: "destructive",
-                onPress: () => {
-                    axios
-                        .delete(`${baseURL}products/${id}`, {
-                            headers: { Authorization: `Bearer ${token}` },
-                        })
-                        .then(() => {
-                            setProducts(products.filter((p) => p._id !== id && p.id !== id));
-                            Toast.show({
-                                topOffset: 60,
-                                type: "success",
-                                text1: "Product deleted",
-                            });
-                        })
-                        .catch((error) => {
+                onPress: async () => {
+                    try {
+                        const productId = String(id || '').trim();
+                        if (!productId) {
                             Toast.show({
                                 topOffset: 60,
                                 type: "error",
-                                text1: "Error deleting product",
+                                text1: "Invalid product id",
                             });
+                            return;
+                        }
+
+                        const tokenCandidates = await getAuthTokenCandidates();
+                        const filteredCandidates = tokenCandidates.filter((candidate) => {
+                            try {
+                                const decoded = jwtDecode(candidate);
+                                return !String(decoded?.userId || '').startsWith('quick-');
+                            } catch (_decodeErr) {
+                                return true;
+                            }
                         });
+
+                        if (!filteredCandidates.length) {
+                            Toast.show({
+                                topOffset: 60,
+                                type: "error",
+                                text1: "Admin login required",
+                                text2: "Use an online admin account to delete products.",
+                            });
+                            return;
+                        }
+
+                        let deleted = false;
+                        let lastError = null;
+
+                        for (const candidate of filteredCandidates) {
+                            try {
+                                await axios.delete(`${baseURL}products/${productId}`, {
+                                    headers: { Authorization: `Bearer ${candidate}` },
+                                });
+                                setToken(candidate);
+                                deleted = true;
+                                break;
+                            } catch (err) {
+                                lastError = err;
+                            }
+                        }
+
+                        if (!deleted) {
+                            throw lastError || new Error('Delete request failed.');
+                        }
+
+                        setProducts((prev) => prev.filter((p) => String(p._id || p.id) !== productId));
+                        Toast.show({
+                            topOffset: 60,
+                            type: "success",
+                            text1: "Product deleted",
+                        });
+                    } catch (error) {
+                        Toast.show({
+                            topOffset: 60,
+                            type: "error",
+                            text1: "Error deleting product",
+                            text2: error?.response?.data?.message || error?.message || 'Please try again.',
+                        });
+                    }
                 },
             },
         ]);

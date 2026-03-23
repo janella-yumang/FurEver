@@ -25,6 +25,39 @@ const STATUS_CONFIG = {
 
 const TRACKING_STEPS = ['Pending', 'Processing', 'Shipped', 'Delivered'];
 
+const getSafeNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const getSafeDateLabel = (value) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+    return parsed.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+};
+
+const normalizeStatus = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Pending';
+    if (raw.toLowerCase() === 'cancelled') return 'Canceled';
+    return STATUS_CONFIG[raw] ? raw : 'Pending';
+};
+
+const safeText = (value, fallback = 'N/A') => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed || fallback;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return fallback;
+};
+
 const OrderHistory = () => {
     const context = useContext(AuthGlobal);
     const navigation = useNavigation();
@@ -89,7 +122,7 @@ const OrderHistory = () => {
     useFocusEffect(fetchOrders);
 
     const handleCancelOrder = (order) => {
-        const status = order.status || 'Pending';
+        const status = normalizeStatus(order?.status);
         if (['Shipped', 'Delivered'].includes(status)) {
             Alert.alert(
                 'Cannot Cancel',
@@ -238,16 +271,21 @@ const OrderHistory = () => {
     };
 
     const renderOrderItem = ({ item }) => {
-        const isFocusedOrder = focusedOrderId && String(item.id || item._id || '') === focusedOrderId;
-        const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.Pending;
-        const date = new Date(item.dateOrdered).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
+        if (!item || typeof item !== 'object') {
+            return null;
+        }
 
-        const canCancel = !['Shipped', 'Delivered', 'Canceled'].includes(item.status);
-        const canMarkDelivered = item.status === 'Shipped';
+        const isFocusedOrder = focusedOrderId && String(item.id || item._id || '') === focusedOrderId;
+        const normalizedStatus = normalizeStatus(item.status);
+        const status = STATUS_CONFIG[normalizedStatus] || STATUS_CONFIG.Pending;
+        const date = getSafeDateLabel(item.dateOrdered);
+        const total = getSafeNumber(item.totalPrice, 0);
+        const orderItems = Array.isArray(item.orderItems) ? item.orderItems : [];
+        const shippingAddress1 = safeText(item.shippingAddress1, 'No address set');
+        const shippingAddress2 = safeText(item.shippingAddress2, '');
+
+        const canCancel = !['Shipped', 'Delivered', 'Canceled'].includes(normalizedStatus);
+        const canMarkDelivered = normalizedStatus === 'Shipped';
 
         return (
             <View style={[styles.orderCard, isFocusedOrder && styles.focusedOrderCard]}>
@@ -274,19 +312,19 @@ const OrderHistory = () => {
                 )}
 
                 {/* Order Tracking */}
-                {renderTrackingSteps(item.status)}
+                {renderTrackingSteps(normalizedStatus)}
 
                 <View style={styles.orderDetails}>
                     <View style={styles.detailRow}>
                         <Ionicons name="location-outline" size={16} color="#888" />
                         <Text style={styles.detailText}>
-                            {item.shippingAddress1}{item.shippingAddress2 ? ', ' + item.shippingAddress2 : ''}
+                            {shippingAddress1}{shippingAddress2 ? ', ' + shippingAddress2 : ''}
                         </Text>
                     </View>
                     <View style={styles.detailRow}>
                         <Ionicons name="card-outline" size={16} color="#888" />
                         <Text style={styles.detailText}>
-                            Total: ${item.totalPrice ? item.totalPrice.toFixed(2) : '0.00'}
+                            Total: ${total.toFixed(2)}
                         </Text>
                     </View>
                     {item.paymentMethod && (
@@ -299,22 +337,22 @@ const OrderHistory = () => {
                     )}
                 </View>
 
-                {item.orderItems && item.orderItems.length > 0 && (
+                {orderItems.length > 0 && (
                     <View style={styles.itemsPreview}>
-                        {item.orderItems.slice(0, 3).map((orderItem, index) => (
+                        {orderItems.slice(0, 3).map((orderItem, index) => (
                             <Image
                                 key={index}
                                 source={{
-                                    uri: orderItem.image ||
+                                    uri: safeText(orderItem?.image, '') ||
                                         'https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png',
                                 }}
                                 style={styles.itemImage}
                             />
                         ))}
-                        {item.orderItems.length > 3 && (
+                        {orderItems.length > 3 && (
                             <View style={styles.moreItems}>
                                 <Text style={styles.moreItemsText}>
-                                    +{item.orderItems.length - 3}
+                                    +{orderItems.length - 3}
                                 </Text>
                             </View>
                         )}
