@@ -216,11 +216,19 @@ const ProductForm = (props) => {
                     }
                 })
                 .catch((error) => {
+                    const errorMsg = error?.response?.data?.message || error?.message || "Failed to update product";
+                    const statusCode = error?.response?.status || "unknown";
+                    console.error('[ProductForm] Error updating product:', {
+                        status: statusCode,
+                        message: errorMsg,
+                        response: error?.response?.data,
+                        error: error
+                    });
                     Toast.show({
                         topOffset: 60,
                         type: "error",
-                        text1: "Something went wrong",
-                        text2: "Please try again"
+                        text1: "Error updating product",
+                        text2: errorMsg
                     })
                 })
         } else {
@@ -240,12 +248,19 @@ const ProductForm = (props) => {
                     }
                 })
                 .catch((error) => {
-                    console.log(error)
+                    const errorMsg = error?.response?.data?.message || error?.message || "Failed to create product";
+                    const statusCode = error?.response?.status || "unknown";
+                    console.error('[ProductForm] Error creating product:', {
+                        status: statusCode,
+                        message: errorMsg,
+                        response: error?.response?.data,
+                        error: error
+                    });
                     Toast.show({
                         topOffset: 60,
                         type: "error",
-                        text1: "Something went wrong",
-                        text2: "Please try again"
+                        text1: "Error creating product",
+                        text2: errorMsg
                     })
                 })
         }
