@@ -2,7 +2,6 @@
 import React, { useState, useContext, useEffect } from "react";
 import { View, Text, StyleSheet, Button, Dimensions, TouchableOpacity, Alert } from 'react-native'
 import { useNavigation } from '@react-navigation/native';
-import * as SecureStore from 'expo-secure-store'
 import FormContainer from "../../Shared/FormContainer";
 import { Ionicons } from "@expo/vector-icons";
 import { jwtDecode } from "jwt-decode";
@@ -19,6 +18,7 @@ import Toast from "react-native-toast-message";
 import baseURL from "../../assets/common/baseurl";
 import { findQuickLoginAccount, generateOfflineJWT } from "../../assets/common/quickLoginAccounts";
 import { registerPushTokenForUser } from "../../assets/common/pushNotifications";
+import { setStoredJwt } from "../../assets/common/authToken";
 
 var { width } = Dimensions.get('window')
 
@@ -136,7 +136,7 @@ const Login = (props) => {
 
             if (data.token) {
                 // Save JWT and set auth context
-                await SecureStore.setItemAsync('jwt', data.token);
+                await setStoredJwt(data.token);
                 const tokenDecoded = jwtDecode(data.token);
 
                 registerPushTokenForUser(tokenDecoded.userId, data.token).catch((error) => {
@@ -211,7 +211,7 @@ const Login = (props) => {
                     const data = await response.json();
 
                     if (response.ok && data?.token) {
-                        await SecureStore.setItemAsync("jwt", data.token);
+                        await setStoredJwt(data.token);
                         const decoded = jwtDecode(data.token);
 
                         registerPushTokenForUser(decoded.userId, data.token).catch((error) => {
@@ -236,7 +236,7 @@ const Login = (props) => {
                 }
 
                 const token = generateOfflineJWT(account);
-                await SecureStore.setItemAsync("jwt", token);
+                await setStoredJwt(token);
 
                 const decoded = jwtDecode(token);
 

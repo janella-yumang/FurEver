@@ -1,12 +1,12 @@
 import React, { useEffect, useReducer, useState } from "react";
 // import "core-js/stable/atob";
 import { jwtDecode } from "jwt-decode"
-import * as SecureStore from 'expo-secure-store'
 
 import authReducer from "../Reducers/Auth.reducer";
 import { setCurrentUser } from "../Actions/Auth.actions";
 import AuthGlobal from './AuthGlobal'
 import { registerPushTokenForUser } from '../../assets/common/pushNotifications';
+import { getStoredJwt } from '../../assets/common/authToken';
 
 const Auth = props => {
     // console.log(props.children)
@@ -18,7 +18,7 @@ const Auth = props => {
 
     useEffect(() => {
         setShowChild(true);
-        SecureStore.getItemAsync('jwt').then((token) => {
+        getStoredJwt().then((token) => {
             if (token) {
                 try {
                     const decoded = jwtDecode(token);

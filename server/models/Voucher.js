@@ -34,7 +34,12 @@ const Voucher = {
       }
       
       if (filter.notExpired) {
-        query.expiresAt = { $gt: new Date() };
+        const now = new Date();
+        query.$or = [
+          { expiresAt: null },
+          { expiresAt: { $exists: false } },
+          { expiresAt: { $gt: now } },
+        ];
       }
       
       const docs = await VoucherModel.find(query)

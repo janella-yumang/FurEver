@@ -179,15 +179,18 @@ const OrderCard = ({ item = {}, update }) => {
       {getOrderItems().length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Items Ordered</Text>
-          {getOrderItems().map((oi, idx) => (
-            <View key={`${oi.id || idx}`} style={styles.orderItemRow}>
-              <View style={styles.orderItemInfo}>
-                <Text style={styles.orderItemName} numberOfLines={1}>{oi.name || 'Unknown'}</Text>
-                <Text style={styles.orderItemQuantity}>Qty: {oi.quantity || 1}</Text>
+          {getOrderItems().map((oi, idx) => {
+            if (!oi || typeof oi !== 'object') return null;
+            return (
+              <View key={`${oi.id || idx}`} style={styles.orderItemRow}>
+                <View style={styles.orderItemInfo}>
+                  <Text style={styles.orderItemName} numberOfLines={1}>{oi.name || 'Unknown'}</Text>
+                  <Text style={styles.orderItemQuantity}>Qty: {oi.quantity || 1}</Text>
+                </View>
+                <Text style={styles.orderItemPrice}>₱{(parseFloat(oi.price || 0) * (oi.quantity || 1)).toFixed(2)}</Text>
               </View>
-              <Text style={styles.orderItemPrice}>₱{(parseFloat(oi.price || 0) * (oi.quantity || 1)).toFixed(2)}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
       )}
 
