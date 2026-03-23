@@ -21,20 +21,38 @@ function requireAdmin(req, res, next) {
     }
 
     const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) {
+      console.warn('[CRUD] Empty token');
+      return res.status(401).json({ message: 'Authorization token required.' });
+    }
+
     const decoded = jwt.verify(token, JWT_SECRET);
     const userId = parseInt(decoded.userId, 10);
     const user = User.findById(userId);
 
-    if (!user || !user.isAdmin || user.isActive === false) {
-      console.warn('[CRUD] Non-admin access attempt:', { userId, isAdmin: user?.isAdmin, isActive: user?.isActive });
+    if (!user) {
+      console.warn('[CRUD] User not found:', { userId });
+      return res.status(401).json({ message: 'User not found.' });
+    }
+    
+    if (!user.isAdmin) {
+      console.warn('[CRUD] Non-admin access attempt:', { userId, isAdmin: user.isAdmin });
       return res.status(403).json({ message: 'Admin access required.' });
+    }
+    
+    if (user.isActive === false) {
+      console.warn('[CRUD] Inactive user attempted access:', { userId });
+      return res.status(403).json({ message: 'Account is inactive.' });
     }
 
     req.user = user;
     console.log('[CRUD] Admin authenticated:', { userId, userName: user.name });
     return next();
   } catch (err) {
-    console.error('[CRUD] Auth error:', err.message);
+    console.error('[CRUD] Auth error:', { message: err?.message, name: err?.name });
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token has expired. Please log in again.' });
+    }
     return res.status(401).json({ message: 'Invalid or expired token.' });
   }
 }

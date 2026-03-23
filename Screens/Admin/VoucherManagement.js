@@ -128,6 +128,12 @@ const VoucherManagement = () => {
         if (!form.promoCode.trim()) return Toast.show({ topOffset: 60, type: 'error', text1: 'Promo code is required.' });
         if (!form.discountValue) return Toast.show({ topOffset: 60, type: 'error', text1: 'Discount value is required.' });
 
+        if (!token) {
+            console.error('[VoucherMgmt] No token available for save');
+            Toast.show({ topOffset: 60, type: 'error', text1: 'Authentication failed', text2: 'No token found. Please refresh.' });
+            return;
+        }
+
         setSaving(true);
         const payload = {
             title: form.title.trim(),
@@ -143,18 +149,24 @@ const VoucherManagement = () => {
             maxClaims: parseInt(form.maxClaims) || 0,
         };
 
+        console.log('[VoucherMgmt] Saving voucher:', { operation: editingId ? 'update' : 'create', title: form.title, code: form.promoCode });
+
         try {
             if (editingId) {
                 await axios.put(`${baseURL}vouchers/${editingId}`, payload, { headers: { Authorization: `Bearer ${token}` } });
+                console.log('[VoucherMgmt] Voucher updated successfully')
                 Toast.show({ topOffset: 60, type: 'success', text1: 'Voucher updated!' });
             } else {
                 await axios.post(`${baseURL}vouchers`, payload, { headers: { Authorization: `Bearer ${token}` } });
+                console.log('[VoucherMgmt] Voucher created successfully')
                 Toast.show({ topOffset: 60, type: 'success', text1: 'Voucher created!' });
             }
             setModalVisible(false);
             loadVouchers();
         } catch (err) {
-            Toast.show({ topOffset: 60, type: 'error', text1: err.response?.data?.message || 'Failed to save voucher.' });
+            const errMsg = err?.response?.data?.message || err?.message || 'Failed to save voucher.';
+            console.error('[VoucherMgmt] Save error:', { status: err?.response?.status, message: errMsg, error: err });
+            Toast.show({ topOffset: 60, type: 'error', text1: 'Save failed', text2: errMsg });
         } finally {
             setSaving(false);
         }

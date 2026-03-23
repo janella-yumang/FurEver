@@ -90,8 +90,11 @@ const ProductForm = (props) => {
             AsyncStorage.getItem("jwt")
                 .then((res) => {
                     setToken(res)
+                    console.log('[ProductForm] Token retrieved:', { hasToken: !!res, tokenPreview: res?.substring(0, 10) + '...' })
                 })
-                .catch((error) => console.log(error))
+                .catch((error) => {
+                    console.error('[ProductForm] Token retrieval error:', error)
+                })
             axios
                 .get(`${baseURL}categories`)
                 .then((res) => setCategories(res.data))
@@ -164,6 +167,20 @@ const ProductForm = (props) => {
             setError("Please fill in all required fields")
             return;
         }
+
+        if (!token) {
+            console.error('[ProductForm] No token available for API call');
+            setError("Authentication error: Please refresh and try again")
+            Toast.show({
+                topOffset: 60,
+                type: "error",
+                text1: "Authentication failed",
+                text2: "No token found. Please refresh the page."
+            })
+            return;
+        }
+
+        console.log('[ProductForm] Adding/updating product:', { name, price, hasImage: !!image, token: token.substring(0, 10) + '...' })
 
         let formData = new FormData();
 

@@ -10,20 +10,36 @@ function requireAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
+      console.warn('[Voucher/Auth] Missing authorization header');
       return res.status(401).json({ message: 'Authorization token required.' });
     }
 
-    const decoded = jwt.verify(authHeader.replace('Bearer ', '').trim(), JWT_SECRET);
+    const token = authHeader.replace('Bearer ', '').trim();
+    const decoded = jwt.verify(token, JWT_SECRET);
     const userId = parseInt(decoded.userId, 10);
     const user = User.findById(userId);
 
-    if (!user || !user.isAdmin || user.isActive === false) {
+    if (!user) {
+      console.warn('[Voucher/Auth] User not found:', { userId });
+      return res.status(401).json({ message: 'User not found.' });
+    }
+    
+    if (!user.isAdmin) {
+      console.warn('[Voucher/Auth] Non-admin user attempted access:', { userId, isAdmin: user.isAdmin });
       return res.status(403).json({ message: 'Admin access required.' });
+    }
+    
+    if (user.isActive === false) {
+      console.warn('[Voucher/Auth] Inactive user attempted access:', { userId });
+      return res.status(403).json({ message: 'Account is inactive.' });
     }
 
     req.adminUser = user;
+    req.user = user;
+    console.log('[Voucher/Auth] Admin authenticated:', { userId, userName: user.name });
     next();
-  } catch {
+  } catch (err) {
+    console.error('[Voucher/Auth] Token verification error:', { message: err?.message });
     return res.status(401).json({ message: 'Invalid or expired token.' });
   }
 }
@@ -100,25 +116,54 @@ router.post('/', requireAdmin, (req, res) => {
   try {
     const { title, message, imageUrl, promoCode, discountType, discountValue,
             maxDiscount, minOrderAmount, startsAt, expiresAt, isActive, maxClaims } = req.body;
+    
+    console.log('[CRUD] CREATE voucher request:', {
+      admin: req.adminUser?.name || req.adminUser?.id,
+      title,
+      promoCode,
+      discountType,
+      discountValue
+    });
 
-    if (!title || !promoCode || !discountType || discountValue == null) {
-      return res.status(400).json({ message: 'title, promoCode, discountType and discountValue are required.' });
+    const missing = [];
+    if (!title) missing.push('title');
+    if (!promoCode) missing.push('promoCode');
+    if (!discountType) missing.push('discountType');
+    if (discountValue == null) missing.push('discountValue');
+    
+    if (missing.length > 0) {
+      console.warn('[CRUD] Voucher validation failed:', { missing });
+      return res.status(400).json({ message: `Missing required fields: ${missing.join(', ')}` });
     }
 
     const existing = Voucher.findByCode(promoCode);
-    if (existing) return res.status(409).json({ message: 'A voucher with this promo code already exists.' });
+    if (existing) {
+      console.warn('[CRUD] Duplicate voucher code:', { promoCode });
+      return res.status(409).json({ message: 'A voucher with this promo code already exists.' });
+    }
+
+    const adminId = req.adminUser?.id || req.adminUser?._id;
+    if (!adminId) {
+      console.error('[CRUD] Cannot determine admin ID for voucher creation');
+      return res.status(500).json({ message: 'Admin ID not available.' });
+    }
 
     const voucher = Voucher.create({
       title, message, imageUrl, promoCode, discountType, discountValue,
-      maxDiscount, minOrderAmount, startsAt, expiresAt,
+      maxDiscount: maxDiscount || 0,
+      minOrderAmount: minOrderAmount || 0,
+      startsAt: startsAt || null,
+      expiresAt: expiresAt || null,
       isActive: isActive !== false,
       maxClaims: maxClaims || 0,
-      createdByUserId: req.adminUser.id || req.adminUser._id || null,
+      createdByUserId: adminId,
     });
+    
+    console.log('[CRUD] Voucher created successfully:', { id: voucher.id, code: voucher.promoCode, discount: voucher.discountValue });
     return res.status(201).json(voucher);
   } catch (err) {
-    console.error('Create voucher error:', err);
-    return res.status(500).json({ message: 'Failed to create voucher.' });
+    console.error('[CRUD] Create voucher error:', { message: err?.message, stack: err?.stack });
+    return res.status(500).json({ message: 'Failed to create voucher: ' + err?.message });
   }
 });
 
