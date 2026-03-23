@@ -17,16 +17,31 @@ const STATUS_CONFIG = {
   Shipped: { color: '#FFD43B', icon: 'airplane', trafficLight: 'limited' },
   Delivered: { color: '#51CF66', icon: 'checkmark-circle', trafficLight: 'available' },
   Canceled: { color: '#FF6B6B', icon: 'close-circle', trafficLight: 'unavailable' },
+  Cancelled: { color: '#FF6B6B', icon: 'close-circle', trafficLight: 'unavailable' },
 };
 
 const statuses = [
   { name: "Pending", code: "Pending" },
   { name: "Processing", code: "Processing" },
   { name: "Shipped", code: "Shipped" },
+  { name: "Delivered", code: "Delivered" },
+  { name: "Canceled", code: "Canceled" },
+  { name: "Cancelled", code: "Cancelled" },
 ];
 
+const STATUS_CODES = new Set(statuses.map((s) => s.code));
+
+const normalizeStatus = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Pending';
+  if (STATUS_CODES.has(raw)) return raw;
+  if (raw.toLowerCase() === 'cancelled') return 'Cancelled';
+  if (raw.toLowerCase() === 'canceled') return 'Canceled';
+  return 'Pending';
+};
+
 const OrderCard = ({ item = {}, update }) => {
-  const [statusChange, setStatusChange] = useState(item?.status || 'Pending');
+  const [statusChange, setStatusChange] = useState(normalizeStatus(item?.status));
   const [token, setToken] = useState('');
   const [updating, setUpdating] = useState(false);
 
@@ -59,7 +74,8 @@ const OrderCard = ({ item = {}, update }) => {
   );
   const displayTotal = asNumber(item?.totalPrice, itemTotal);
   
-  const cfg = STATUS_CONFIG[item?.status] || STATUS_CONFIG.Pending;
+  const normalizedItemStatus = normalizeStatus(item?.status);
+  const cfg = STATUS_CONFIG[normalizedItemStatus] || STATUS_CONFIG.Pending;
 
   useEffect(() => {
     const loadToken = async () => {
@@ -102,14 +118,14 @@ const OrderCard = ({ item = {}, update }) => {
 
     setUpdating(true);
     axios
-      .put(`${baseURL}orders/${item.id || item._id}`, { status: statusChange }, config)
+      .put(`${baseURL}orders/${item.id || item._id}`, { status: normalizeStatus(statusChange) }, config)
       .then((res) => {
         if (res.status === 200 || res.status === 201) {
           Toast.show({
             topOffset: 60,
             type: 'success',
             text1: 'Order Updated',
-            text2: `Status changed to ${statusChange}`,
+            text2: `Status changed to ${normalizeStatus(statusChange)}`,
           });
           setTimeout(() => {
             navigation.navigate('Orders');
@@ -144,7 +160,7 @@ const OrderCard = ({ item = {}, update }) => {
         <Text style={styles.orderNumber}>Order #{(item.id || item._id || '').toString().slice(-8)}</Text>
         <View style={[styles.statusBadge, { backgroundColor: cfg.color }]}> 
           <Ionicons name={cfg.icon} size={14} color="white" />
-          <Text style={styles.statusBadgeText}>{item.status || 'Pending'}</Text>
+          <Text style={styles.statusBadgeText}>{normalizedItemStatus}</Text>
         </View>
       </View>
 
@@ -204,8 +220,8 @@ const OrderCard = ({ item = {}, update }) => {
         <View style={styles.actionsWrap}>
           <Picker
             style={styles.statusPicker}
-            selectedValue={statusChange}
-            onValueChange={(value) => setStatusChange(value)}
+            selectedValue={normalizeStatus(statusChange)}
+            onValueChange={(value) => setStatusChange(normalizeStatus(value))}
             enabled={!updating}
           >
             {statuses.map((s) => (
