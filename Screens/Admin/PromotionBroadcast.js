@@ -10,14 +10,13 @@ import {
   Alert,
   Image,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
 import baseURL from '../../assets/common/baseurl';
 import { jwtDecode } from 'jwt-decode';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { getStoredJwt } from '../../assets/common/authToken';
 
 const PromotionBroadcast = () => {
   const [title, setTitle] = useState('');
@@ -36,11 +35,7 @@ const PromotionBroadcast = () => {
   const [sending, setSending] = useState(false);
   const [lastResult, setLastResult] = useState(null);
 
-  const getAuthToken = async () => {
-    const secureToken = await SecureStore.getItemAsync('jwt');
-    if (secureToken) return secureToken;
-    return await AsyncStorage.getItem('jwt');
-  };
+  const getAuthToken = async () => getStoredJwt();
 
   const clearForm = () => {
     setTitle('');
@@ -105,11 +100,11 @@ const PromotionBroadcast = () => {
       return;
     }
 
-    const parsedDiscount = discountPercent.trim() ? Number(discountPercent) : null;
+    const parsedDiscount = Number(discountPercent);
     const parsedProductId = productId.trim() ? Number(productId) : null;
 
-    if (parsedDiscount !== null && (Number.isNaN(parsedDiscount) || parsedDiscount < 0 || parsedDiscount > 100)) {
-      Alert.alert('Invalid discount', 'Discount must be a number between 0 and 100.');
+    if (Number.isNaN(parsedDiscount) || parsedDiscount <= 0 || parsedDiscount > 100) {
+      Alert.alert('Invalid discount', 'Discount is required and must be a number between 1 and 100.');
       return;
     }
 
@@ -147,9 +142,9 @@ const PromotionBroadcast = () => {
       const payload = {
         title: title.trim(),
         message: message.trim(),
+        discountPercent: parsedDiscount,
       };
 
-      if (parsedDiscount !== null) payload.discountPercent = parsedDiscount;
       if (promoCode.trim()) payload.promoCode = promoCode.trim();
       if (expiresAtDate) payload.expiresAt = expiresAtDate.toISOString();
       if (maxClaims.trim()) payload.maxClaims = Number(maxClaims);
@@ -210,7 +205,7 @@ const PromotionBroadcast = () => {
         multiline
       />
 
-      <Text style={styles.label}>Discount Percent (optional)</Text>
+      <Text style={styles.label}>Discount Percent *</Text>
       <TextInput
         style={styles.input}
         placeholder="20"

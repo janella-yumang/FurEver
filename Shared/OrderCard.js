@@ -32,8 +32,32 @@ const OrderCard = ({ item, update }) => {
 
   const navigation = useNavigation();
 
+  const asNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const formatOrderDate = (value) => {
+    if (!value) return 'N/A';
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return 'N/A';
+      if (trimmed.includes('T')) return trimmed.split('T')[0];
+      const parsed = new Date(trimmed);
+      return Number.isNaN(parsed.getTime()) ? trimmed : parsed.toISOString().split('T')[0];
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+    return parsed.toISOString().split('T')[0];
+  };
+
   // Calculate total from orderItems if totalPrice not available
-  const displayTotal = item.totalPrice || (item.orderItems?.reduce((t, oi) => t + (oi.price * (oi.quantity || 1)), 0) || 0);
+  const itemTotal = (Array.isArray(item?.orderItems) ? item.orderItems : []).reduce(
+    (t, oi) => t + asNumber(oi?.price, 0) * asNumber(oi?.quantity, 1),
+    0
+  );
+  const displayTotal = asNumber(item?.totalPrice, itemTotal);
   
   const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.Pending;
 
@@ -144,7 +168,7 @@ const OrderCard = ({ item, update }) => {
       <View style={styles.metaRow}>
         <View>
           <Text style={styles.subtleText}>Date Ordered</Text>
-          <Text style={styles.detailText}>{item.dateOrdered ? item.dateOrdered.split("T")[0] : 'N/A'}</Text>
+          <Text style={styles.detailText}>{formatOrderDate(item?.dateOrdered)}</Text>
         </View>
         <View style={styles.priceContainer}>
           <Text style={styles.subtleText}>Total</Text>

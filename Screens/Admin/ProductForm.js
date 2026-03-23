@@ -17,7 +17,6 @@ import Input from "../../Shared/Input"
 import EasyButton from "../../Shared/StyledComponents/EasyButton"
 
 import Toast from "react-native-toast-message"
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import baseURL from "../../assets/common/baseurl"
 import Error from "../../Shared/Error"
 import axios from "axios"
@@ -26,6 +25,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native"
 import { useCallback } from "react"
 import mime from "mime";
 import { Ionicons } from "@expo/vector-icons";
+import { getStoredJwt } from "../../assets/common/authToken";
 
 const PET_TYPES = ['Dog', 'Cat', 'Fish', 'Bird', 'Rabbit', 'Hamster', 'Reptile', 'Other'];
 const PRODUCT_CATEGORIES = [
@@ -87,7 +87,7 @@ const ProductForm = (props) => {
                 setSizeVariants(editItem.variants ? editItem.variants.join(', ') : '');
                 setError(null);
             }
-            AsyncStorage.getItem("jwt")
+            getStoredJwt()
                 .then((res) => {
                     setToken(res)
                     console.log('[ProductForm] Token retrieved:', { hasToken: !!res, tokenPreview: res?.substring(0, 10) + '...' })
