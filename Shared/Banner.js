@@ -20,7 +20,7 @@ const Banner = () => {
   };
 
   const toBannerItem = (voucher) => ({
-    id: voucher?.id,
+    id: voucher?.id || voucher?._id,
     promoCode: voucher?.promoCode || '',
     title: voucher?.title || '',
     message: voucher?.message || '',
@@ -58,7 +58,12 @@ const Banner = () => {
         }
       }
       const prepared = vouchers
-        .filter((voucher) => !!voucher?.id)
+        .filter((voucher) => !!(voucher?.id || voucher?._id))
+        .sort((a, b) => {
+          const aCreated = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bCreated = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bCreated - aCreated;
+        })
         .slice(0, 5)
         .map(toBannerItem);
       setBannerData(prepared);
@@ -75,6 +80,14 @@ const Banner = () => {
       return undefined;
     }, [])
   );
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      fetchActiveVouchers();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <View style={styles.container}>

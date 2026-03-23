@@ -30,7 +30,7 @@ const VoucherDetail = () => {
   const context = useContext(AuthGlobal);
 
   const routeVoucher = route.params?.voucher || null;
-  const voucherId = route.params?.voucherId || routeVoucher?.id;
+  const voucherId = route.params?.voucherId || routeVoucher?.id || routeVoucher?._id;
   const promoCodeParam = String(route.params?.promoCode || routeVoucher?.promoCode || '').trim().toUpperCase();
 
   const [voucher, setVoucher] = useState(routeVoucher);
@@ -40,7 +40,7 @@ const VoucherDetail = () => {
   const userId = context.stateUser?.user?.userId || context.stateUser?.user?.sub;
 
   const canClaim = useMemo(() => {
-    return !!voucher?.id && !!context.stateUser?.isAuthenticated;
+    return !!(voucher?.id || voucher?._id) && !!context.stateUser?.isAuthenticated;
   }, [voucher, context.stateUser?.isAuthenticated]);
 
   useEffect(() => {
@@ -100,7 +100,8 @@ const VoucherDetail = () => {
   };
 
   const onClaim = async () => {
-    if (!voucher?.id || claiming) return;
+    const effectiveVoucherId = voucher?.id || voucher?._id;
+    if (!effectiveVoucherId || claiming) return;
 
     if (!context.stateUser?.isAuthenticated || !userId) {
       Alert.alert('Login required', 'Please log in to claim this voucher.');
@@ -112,7 +113,7 @@ const VoucherDetail = () => {
       const token = await getAuthToken();
 
       const res = await axios.post(
-        `${baseURL}notifications/promotions/vouchers/${voucher.id}/claim`,
+        `${baseURL}notifications/promotions/vouchers/${effectiveVoucherId}/claim`,
         { userId },
         { headers: { Authorization: `Bearer ${token}` } }
       );

@@ -25,8 +25,8 @@ const statuses = [
   { name: "Shipped", code: "Shipped" },
 ];
 
-const OrderCard = ({ item, update }) => {
-  const [statusChange, setStatusChange] = useState(item.status || 'Pending');
+const OrderCard = ({ item = {}, update }) => {
+  const [statusChange, setStatusChange] = useState(item?.status || 'Pending');
   const [token, setToken] = useState('');
   const [updating, setUpdating] = useState(false);
 
@@ -59,7 +59,7 @@ const OrderCard = ({ item, update }) => {
   );
   const displayTotal = asNumber(item?.totalPrice, itemTotal);
   
-  const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.Pending;
+  const cfg = STATUS_CONFIG[item?.status] || STATUS_CONFIG.Pending;
 
   useEffect(() => {
     const loadToken = async () => {

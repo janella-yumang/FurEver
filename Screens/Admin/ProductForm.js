@@ -26,6 +26,7 @@ import { useCallback } from "react"
 import mime from "mime";
 import { Ionicons } from "@expo/vector-icons";
 import { getStoredJwt } from "../../assets/common/authToken";
+import { jwtDecode } from "jwt-decode";
 
 const PET_TYPES = ['Dog', 'Cat', 'Fish', 'Bird', 'Rabbit', 'Hamster', 'Reptile', 'Other'];
 const PRODUCT_CATEGORIES = [
@@ -156,7 +157,7 @@ const ProductForm = (props) => {
         }
     }
 
-    const addProduct = () => {
+    const addProduct = async () => {
         if (
             name === "" ||
             price === "" ||
@@ -168,19 +169,43 @@ const ProductForm = (props) => {
             return;
         }
 
-        if (!token) {
+        let authToken = token;
+        if (!authToken) {
+            authToken = await getStoredJwt();
+            if (authToken) {
+                setToken(authToken);
+            }
+        }
+
+        if (!authToken) {
             console.error('[ProductForm] No token available for API call');
             setError("Authentication error: Please refresh and try again")
             Toast.show({
                 topOffset: 60,
                 type: "error",
                 text1: "Authentication failed",
-                text2: "No token found. Please refresh the page."
+                text2: "No token found. Please log in again as admin."
             })
             return;
         }
 
-        console.log('[ProductForm] Adding/updating product:', { name, price, hasImage: !!image, token: token.substring(0, 10) + '...' })
+        try {
+            const decoded = jwtDecode(authToken);
+            if (String(decoded?.userId || '').startsWith('quick-')) {
+                setError("Quick Login tokens cannot access admin APIs")
+                Toast.show({
+                    topOffset: 60,
+                    type: "error",
+                    text1: "Admin authentication required",
+                    text2: "Sign in with your online admin account."
+                })
+                return;
+            }
+        } catch (_decodeErr) {
+            // Let backend validate malformed/expired tokens.
+        }
+
+        console.log('[ProductForm] Adding/updating product:', { name, price, hasImage: !!image, token: authToken.substring(0, 10) + '...' })
 
         let formData = new FormData();
 
@@ -213,7 +238,7 @@ const ProductForm = (props) => {
         const config = {
             headers: {
                 "Content-Type": "multipart/form-data",
-                "Authorization": `Bearer ${token}`
+                "Authorization": `Bearer ${authToken}`
             }
         }
         if (item !== null) {
