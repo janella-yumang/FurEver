@@ -107,8 +107,8 @@ const Order = {
         updatedAt: now,
       };
       
-      const order = new OrderModel(orderData);
-      const saved = await order.save();
+      const orderDoc = new OrderModel(orderData);
+      const saved = await orderDoc.save();
       
       const populated = await OrderModel.findById(saved._id)
         .populate('userId', 'name email');
