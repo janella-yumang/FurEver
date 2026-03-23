@@ -4,11 +4,40 @@ const multer = require('multer');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
 const Order = require('../models/Order');
+const User = require('../models/User');
 const { db } = require('../database');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fieldSize: 10 * 1024 * 1024 } });
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
+
+// ─── MIDDLEWARE ─────────────────────────────────────────────
+function requireAdmin(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      console.warn('[CRUD] Missing authorization token');
+      return res.status(401).json({ message: 'Authorization token required.' });
+    }
+
+    const token = authHeader.replace('Bearer ', '').trim();
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = parseInt(decoded.userId, 10);
+    const user = User.findById(userId);
+
+    if (!user || !user.isAdmin || user.isActive === false) {
+      console.warn('[CRUD] Non-admin access attempt:', { userId, isAdmin: user?.isAdmin, isActive: user?.isActive });
+      return res.status(403).json({ message: 'Admin access required.' });
+    }
+
+    req.user = user;
+    console.log('[CRUD] Admin authenticated:', { userId, userName: user.name });
+    return next();
+  } catch (err) {
+    console.error('[CRUD] Auth error:', err.message);
+    return res.status(401).json({ message: 'Invalid or expired token.' });
+  }
+}
 
 // ─── ADMIN: ALL REVIEWS (must be before /:id) ───────────────
 router.get('/reviews/all', (req, res) => {
@@ -72,12 +101,14 @@ router.get('/', (req, res) => {
     if (req.query.categories) {
       const catIds = req.query.categories.split(',').map(Number).filter(Boolean);
       products = Product.find({ categoryIds: catIds });
+      console.log('[CRUD] GET products by categories:', { categories: catIds, count: products.length });
     } else {
       products = Product.find();
+      console.log('[CRUD] GET all products:', { count: products.length });
     }
     return res.status(200).json(products);
   } catch (err) {
-    console.error('Get products error:', err);
+    console.error('[CRUD] Get products error:', { message: err.message });
     return res.status(500).json({ message: 'Failed to fetch products.' });
   }
 });
@@ -86,37 +117,62 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const product = Product.findById(req.params.id);
+    console.log('[CRUD] GET single product:', { id: req.params.id, found: !!product });
     if (!product) return res.status(404).json({ message: 'Product not found.' });
     return res.status(200).json(product);
   } catch (err) {
-    console.error('Get product error:', err);
+    console.error('[CRUD] Get product error:', { id: req.params.id, message: err.message });
     return res.status(500).json({ message: 'Failed to fetch product.' });
   }
 });
 
 // ─── CREATE PRODUCT ─────────────────────────────────────────
-router.post('/', upload.single('image'), (req, res) => {
+router.post('/', requireAdmin, upload.single('image'), (req, res) => {
   try {
     const { name, description, price, category, countInStock, lowStockThreshold, barcode, petType, variants, expirationDate } = req.body;
+    
+    console.log('[CRUD] CREATE request:', { 
+      admin: req.user?.name || req.user?.id,
+      name, 
+      price, 
+      category,
+      hasImage: !!req.file,
+      bodyKeys: Object.keys(req.body)
+    });
+
     if (!name || !description || price == null) {
-      return res.status(400).json({ message: 'Name, description and price are required.' });
+      const missing = [];
+      if (!name) missing.push('name');
+      if (!description) missing.push('description');
+      if (price == null) missing.push('price');
+      console.warn('[CRUD] Validation failed:', { missing });
+      return res.status(400).json({ message: `Missing required fields: ${missing.join(', ')}` });
     }
+    
     if (category) {
       const cat = Category.findById(category);
-      if (!cat) return res.status(400).json({ message: 'Invalid category.' });
+      if (!cat) {
+        console.warn('[CRUD] Invalid category:', { categoryId: category });
+        return res.status(400).json({ message: 'Invalid category.' });
+      }
     }
 
     let image = '';
     if (req.file) {
       const b64 = req.file.buffer.toString('base64');
       image = `data:${req.file.mimetype};base64,${b64}`;
+      console.log('[CRUD] Image processed:', { size: req.file.size, type: req.file.mimetype });
     } else if (req.body.image) {
       image = req.body.image;
+      console.log('[CRUD] Using image from body');
     }
 
     let parsedVariants = [];
     if (variants) {
-      try { parsedVariants = JSON.parse(variants); } catch { parsedVariants = []; }
+      try { parsedVariants = JSON.parse(variants); } catch (e) { 
+        console.warn('[CRUD] Variant parse error:', e.message);
+        parsedVariants = []; 
+      }
     }
 
     const product = Product.create({
@@ -127,18 +183,26 @@ router.post('/', upload.single('image'), (req, res) => {
       barcode: barcode || '', petType: petType || '',
       variants: parsedVariants, expirationDate: expirationDate || '', image,
     });
+    
+    console.log('[CRUD] Product created successfully:', { id: product.id, name: product.name, price: product.price });
     return res.status(201).json(product);
   } catch (err) {
-    console.error('Create product error:', err);
-    return res.status(500).json({ message: 'Failed to create product.' });
+    console.error('[CRUD] Create product error:', { message: err.message, stack: err.stack });
+    return res.status(500).json({ message: 'Failed to create product: ' + err.message });
   }
 });
 
 // ─── UPDATE PRODUCT ─────────────────────────────────────────
-router.put('/:id', upload.single('image'), (req, res) => {
+router.put('/:id', requireAdmin, upload.single('image'), (req, res) => {
   try {
-    const existing = Product.findById(req.params.id);
-    if (!existing) return res.status(404).json({ message: 'Product not found.' });
+    const productId = req.params.id;
+    console.log('[CRUD] UPDATE request:', { admin: req.user?.name, productId, bodyKeys: Object.keys(req.body) });
+    
+    const existing = Product.findById(productId);
+    if (!existing) {
+      console.warn('[CRUD] Product not found:', { productId });
+      return res.status(404).json({ message: 'Product not found.' });
+    }
 
     const updates = {};
     const fields = ['name', 'description', 'price', 'category', 'countInStock', 'lowStockThreshold', 'barcode', 'petType', 'expirationDate'];
@@ -150,32 +214,46 @@ router.put('/:id', upload.single('image'), (req, res) => {
       }
     }
     if (req.body.variants) {
-      try { updates.variants = JSON.parse(req.body.variants); } catch { }
+      try { updates.variants = JSON.parse(req.body.variants); } catch (e) { 
+        console.warn('[CRUD] Variant parse error on update:', e.message);
+      }
     }
     if (req.file) {
       const b64 = req.file.buffer.toString('base64');
       updates.image = `data:${req.file.mimetype};base64,${b64}`;
+      console.log('[CRUD] Image updated:', { size: req.file.size, type: req.file.mimetype });
     } else if (req.body.image) {
       updates.image = req.body.image;
     }
+    
+    console.log('[CRUD] Applying updates:', { fields: Object.keys(updates) });
 
-    const product = Product.update(req.params.id, updates);
+    const product = Product.update(productId, updates);
+    console.log('[CRUD] Product updated successfully:', { id: product.id, name: product.name });
     return res.status(200).json(product);
   } catch (err) {
-    console.error('Update product error:', err);
-    return res.status(500).json({ message: 'Failed to update product.' });
+    console.error('[CRUD] Update product error:', { message: err.message, stack: err.stack });
+    return res.status(500).json({ message: 'Failed to update product: ' + err.message });
   }
 });
 
 // ─── DELETE PRODUCT ─────────────────────────────────────────
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireAdmin, (req, res) => {
   try {
-    const deleted = Product.delete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: 'Product not found.' });
+    const productId = req.params.id;
+    console.log('[CRUD] DELETE request:', { admin: req.user?.name, productId });
+    
+    const deleted = Product.delete(productId);
+    if (!deleted) {
+      console.warn('[CRUD] Product not found for deletion:', { productId });
+      return res.status(404).json({ message: 'Product not found.' });
+    }
+    
+    console.log('[CRUD] Product deleted successfully:', { productId });
     return res.status(200).json({ message: 'Product deleted.' });
   } catch (err) {
-    console.error('Delete product error:', err);
-    return res.status(500).json({ message: 'Failed to delete product.' });
+    console.error('[CRUD] Delete product error:', { message: err.message, stack: err.stack });
+    return res.status(500).json({ message: 'Failed to delete product: ' + err.message });
   }
 });
 

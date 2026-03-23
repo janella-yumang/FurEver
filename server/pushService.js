@@ -319,8 +319,10 @@ async function sendFcmMessages(messages = []) {
     } catch (err) {
       failed += 1;
       const code = String(err?.code || '');
+      console.error('[Push/FCM] Send failed:', { code, message: err?.message, userId: message.userId });
       if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
         staleTokens.add(message.token);
+        console.warn('[Push/FCM] Stale token detected:', { userId: message.userId });
       }
       reports.push({
         provider: 'fcm',
@@ -337,6 +339,7 @@ async function sendFcmMessages(messages = []) {
 
 async function sendPushMessages(messages = []) {
   if (!messages.length) {
+    console.log('[Push] No messages to send');
     return { sent: 0, failed: 0, staleTokens: new Set(), reports: [] };
   }
 
@@ -354,10 +357,18 @@ async function sendPushMessages(messages = []) {
     }
   }
 
+  console.log('[Push] Sending messages:', { total: messages.length, expo: expoMessages.length, fcm: fcmMessages.length });
+
   const [expoResult, fcmResult] = await Promise.all([
     sendExpoPushMessages(expoMessages),
     sendFcmMessages(fcmMessages),
   ]);
+
+  console.log('[Push] Results:', {
+    expo: { sent: expoResult.sent, failed: expoResult.failed },
+    fcm: { sent: fcmResult.sent, failed: fcmResult.failed },
+    total: { sent: expoResult.sent + fcmResult.sent, failed: expoResult.failed + fcmResult.failed }
+  });
 
   return {
     sent: expoResult.sent + fcmResult.sent,
