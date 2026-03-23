@@ -16,13 +16,13 @@ function requireAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
-      console.warn('[CRUD] Missing authorization token');
+      console.warn('[CRUD/Auth] Missing authorization token');
       return res.status(401).json({ message: 'Authorization token required.' });
     }
 
     const token = authHeader.replace('Bearer ', '').trim();
     if (!token) {
-      console.warn('[CRUD] Empty token');
+      console.warn('[CRUD/Auth] Empty token string');
       return res.status(401).json({ message: 'Authorization token required.' });
     }
 
@@ -31,29 +31,32 @@ function requireAdmin(req, res, next) {
     const user = User.findById(userId);
 
     if (!user) {
-      console.warn('[CRUD] User not found:', { userId });
+      console.warn('[CRUD/Auth] User not found for token:', { userId });
       return res.status(401).json({ message: 'User not found.' });
     }
     
     if (!user.isAdmin) {
-      console.warn('[CRUD] Non-admin access attempt:', { userId, isAdmin: user.isAdmin });
-      return res.status(403).json({ message: 'Admin access required.' });
+      console.warn('[CRUD/Auth] Non-admin attempted product access:', { userId, name: user.name, isAdmin: user.isAdmin });
+      return res.status(403).json({ message: 'Admin access required to create/edit products.' });
     }
     
     if (user.isActive === false) {
-      console.warn('[CRUD] Inactive user attempted access:', { userId });
-      return res.status(403).json({ message: 'Account is inactive.' });
+      console.warn('[CRUD/Auth] Inactive admin attempted product access:', { userId });
+      return res.status(403).json({ message: 'Your account is inactive.' });
     }
 
     req.user = user;
-    console.log('[CRUD] Admin authenticated:', { userId, userName: user.name });
+    console.log('[CRUD/Product] Admin authenticated for operation:', { userId, name: user.name });
     return next();
   } catch (err) {
-    console.error('[CRUD] Auth error:', { message: err?.message, name: err?.name });
+    console.error('[CRUD/Auth] Token verification failed:', { errorName: err?.name, message: err?.message, tokenPreview: err?.message?.includes('expired') ? 'EXPIRED' : 'INVALID' });
     if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Token has expired. Please log in again.' });
+      return res.status(401).json({ message: 'Your session has expired. Please log in again.' });
     }
-    return res.status(401).json({ message: 'Invalid or expired token.' });
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid authentication token.' });
+    }
+    return res.status(401).json({ message: 'Authentication failed: ' + err?.message });
   }
 }
 
@@ -163,7 +166,7 @@ router.post('/', requireAdmin, upload.single('image'), (req, res) => {
       if (!name) missing.push('name');
       if (!description) missing.push('description');
       if (price == null) missing.push('price');
-      console.warn('[CRUD] Validation failed:', { missing });
+      console.warn('[CRUD/CREATE] ❌ Validation FAILED:', { missing, receivedFields: Object.keys(req.body) });
       return res.status(400).json({ message: `Missing required fields: ${missing.join(', ')}` });
     }
     
@@ -202,7 +205,21 @@ router.post('/', requireAdmin, upload.single('image'), (req, res) => {
       variants: parsedVariants, expirationDate: expirationDate || '', image,
     });
     
-    console.log('[CRUD] Product created successfully:', { id: product.id, name: product.name, price: product.price });
+    console.log('=====================================================================================================');
+    console.log('✅ [CRUD/CREATE] SUCCESS - PRODUCT SAVED TO DATABASE');
+    console.log('=====================================================================================================');
+    console.log('[CRUD/CREATE] Saved product:', { 
+      id: product.id, 
+      name: product.name, 
+      price: product.price,
+      countInStock: product.countInStock,
+      category: product.category,
+      petType: product.petType,
+      hasImage: !!product.image,
+      createdBy: req.user?.name,
+      timestamp: new Date().toISOString()
+    });
+    console.log('=====================================================================================================');
     return res.status(201).json(product);
   } catch (err) {
     console.error('[CRUD] Create product error:', { message: err.message, stack: err.stack });
@@ -247,7 +264,20 @@ router.put('/:id', requireAdmin, upload.single('image'), (req, res) => {
     console.log('[CRUD] Applying updates:', { fields: Object.keys(updates) });
 
     const product = Product.update(productId, updates);
-    console.log('[CRUD] Product updated successfully:', { id: product.id, name: product.name });
+    console.log('=====================================================================================================');
+    console.log('✅ [CRUD/UPDATE] SUCCESS - PRODUCT UPDATED IN DATABASE');
+    console.log('=====================================================================================================');
+    console.log('[CRUD/UPDATE] Updated product:', { 
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      countInStock: product.countInStock,
+      category: product.category,
+      updatedBy: req.user?.name,
+      fieldsChanged: Object.keys(updates),
+      timestamp: new Date().toISOString()
+    });
+    console.log('=====================================================================================================');
     return res.status(200).json(product);
   } catch (err) {
     console.error('[CRUD] Update product error:', { message: err.message, stack: err.stack });
@@ -267,7 +297,15 @@ router.delete('/:id', requireAdmin, (req, res) => {
       return res.status(404).json({ message: 'Product not found.' });
     }
     
-    console.log('[CRUD] Product deleted successfully:', { productId });
+    console.log('=====================================================================================================');
+    console.log('✅ [CRUD/DELETE] SUCCESS - PRODUCT REMOVED FROM DATABASE');
+    console.log('=====================================================================================================');
+    console.log('[CRUD/DELETE] Deleted product:', { 
+      id: productId,
+      deletedBy: req.user?.name,
+      timestamp: new Date().toISOString()
+    });
+    console.log('=====================================================================================================');
     return res.status(200).json({ message: 'Product deleted.' });
   } catch (err) {
     console.error('[CRUD] Delete product error:', { message: err.message, stack: err.stack });

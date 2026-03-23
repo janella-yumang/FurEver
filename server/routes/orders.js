@@ -277,6 +277,7 @@ router.post('/', requireAuth, async (req, res) => {
 
       const userFcmToken = resolveFcmTokenForUser(userObj);
       if (userFcmToken && isSupportedPushToken(userFcmToken)) {
+        console.log('[OrderCreation/Push] Sending order confirmation:', { orderId: order.id, userId: userObj.id, token: userFcmToken.substring(0, 20) + '...' });
         const pushResult = await sendPushMessages([
           {
             token: userFcmToken,
@@ -290,9 +291,14 @@ router.post('/', requireAuth, async (req, res) => {
           },
         ]);
 
+        console.log('[OrderCreation/Push] Push result:', { sent: pushResult.sent, failed: pushResult.failed });
+
         if (pushResult.staleTokens.has(userFcmToken)) {
+          console.warn('[OrderCreation/Push] Stale token detected, clearing:', { userId: userObj.id });
           User.update(userObj.id, { pushToken: null });
         }
+      } else {
+        console.warn('[OrderCreation/Push] No valid push token for user:', { userId: userObj.id, hasToken: !!userObj.pushToken });
       }
     }
 
@@ -385,6 +391,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
         const userFcmToken = resolveFcmTokenForUser(userObj);
         if (userFcmToken && isSupportedPushToken(userFcmToken)) {
+          console.log('[OrderStatus/Push] Sending status update:', { orderId: order.id, status, userId: userObj.id, token: userFcmToken.substring(0, 20) + '...' });
           const pushResult = await sendPushMessages([
             {
               token: userFcmToken,
@@ -398,9 +405,14 @@ router.put('/:id', requireAuth, async (req, res) => {
             },
           ]);
 
+          console.log('[OrderStatus/Push] Push result:', { sent: pushResult.sent, failed: pushResult.failed, staleTokens: pushResult.staleTokens.size });
+
           if (pushResult.staleTokens.has(userFcmToken)) {
+            console.warn('[OrderStatus/Push] Stale token detected, clearing:', { userId: userObj.id });
             User.update(userObj.id, { pushToken: null });
           }
+        } else {
+          console.warn('[OrderStatus/Push] No valid push token for user:', { userId: userObj.id, hasToken: !!userObj.pushToken, isSupported: isSupportedPushToken(userObj.pushToken) });
         }
       }
 
