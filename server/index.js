@@ -31,7 +31,12 @@ const ordersRoutes = require('./routes/orders');
 const notificationsRoutes = require('./routes/notifications');
 const analyticsRoutes = require('./routes/analytics');
 const vouchersRoutes = require('./routes/vouchers');
-const migrationRoutes = require('./routes/migration');
+let migrationRoutes = null;
+try {
+  migrationRoutes = require('./routes/migration');
+} catch (error) {
+  console.warn('⚠ Migration routes are unavailable in this deployment:', error?.message || error);
+}
 
 const app = express();
 
@@ -65,7 +70,9 @@ app.use('/api/v1/orders', ordersRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/vouchers', vouchersRoutes);
-app.use('/api/v1/migration', migrationRoutes);
+if (migrationRoutes) {
+  app.use('/api/v1/migration', migrationRoutes);
+}
 
 function startServer(preferredPort) {
   const server = net.createServer();
