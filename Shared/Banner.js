@@ -43,8 +43,20 @@ const Banner = () => {
 
   const fetchActiveVouchers = async () => {
     try {
-      const res = await axios.get(`${baseURL}vouchers/public/active`);
-      const vouchers = extractVoucherList(res?.data);
+      // Fetch both active and all vouchers to show new promotions
+      let vouchers = [];
+      try {
+        const res = await axios.get(`${baseURL}vouchers/public/active`);
+        vouchers = extractVoucherList(res?.data);
+      } catch (err) {
+        console.log('[Banner] Could not fetch public active vouchers, trying public endpoint');
+        try {
+          const res = await axios.get(`${baseURL}vouchers/public`);
+          vouchers = extractVoucherList(res?.data);
+        } catch (_err) {
+          vouchers = [];
+        }
+      }
       const prepared = vouchers
         .filter((voucher) => !!voucher?.id)
         .slice(0, 5)

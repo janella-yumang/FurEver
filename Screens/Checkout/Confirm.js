@@ -5,14 +5,13 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useNavigation } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux'
-import AsyncStorage from "@react-native-async-storage/async-storage"
-import * as SecureStore from 'expo-secure-store'
 import axios from 'axios';
 import baseURL from '../../assets/common/baseurl';
 import AuthGlobal from '../../Context/Store/AuthGlobal';
 var { width, height } = Dimensions.get("window");
 import Toast from 'react-native-toast-message';
 import { clearCart } from '../../Redux/Actions/cartActions';
+import { getStoredJwt } from '../../assets/common/authToken';
 
 const Confirm = (props) => {
     const context = useContext(AuthGlobal)
@@ -23,11 +22,7 @@ const Confirm = (props) => {
     const navigation = useNavigation()
 
     const getAuthToken = async () => {
-        const secureToken = await SecureStore.getItemAsync('jwt');
-        if (secureToken) return secureToken;
-        
-        const asyncToken = await AsyncStorage.getItem("jwt");
-        return asyncToken || null;
+        return await getStoredJwt();
     };
 
     useEffect(() => {

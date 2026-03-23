@@ -2,8 +2,6 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native'
 import { useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 import { jwtDecode } from 'jwt-decode';
 
 
@@ -18,6 +16,7 @@ import Toast from 'react-native-toast-message';
 import Auth from './Context/Store/Auth';
 import DrawerNavigator from './Navigators/DrawerNavigator';
 import { loadUserCart, setCartUserId } from './Redux/Actions/cartActions';
+import { getStoredJwt } from './assets/common/authToken';
 
 const ORDER_NOTIFICATION_TYPES = new Set([
   'order_confirmed',
@@ -83,9 +82,9 @@ const CartBootstrapper = () => {
   const dispatch = useDispatch();
 
   useEffect(() => {
-    const hydrateCartFromSQLite = async () => {
+    const hydrateCartFromStorage = async () => {
       try {
-        const token = await SecureStore.getItemAsync('jwt');
+        const token = await getStoredJwt();
         let userId = null;
 
         if (token) {
@@ -104,7 +103,7 @@ const CartBootstrapper = () => {
       }
     };
 
-    hydrateCartFromSQLite();
+    hydrateCartFromStorage();
   }, [dispatch]);
 
   return null;

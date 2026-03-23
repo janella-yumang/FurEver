@@ -9,7 +9,6 @@ import OrderHistory from "../Screens/User/OrderHistory";
 import Wishlist from "../Screens/Wishlist/Wishlist";
 import Notifications from "../Screens/User/Notifications";
 import NotificationDetail from "../Screens/User/NotificationDetail";
-import VerifyEmail from "../Screens/User/VerifyEmail";
 import AuthGlobal from "../Context/Store/AuthGlobal";
 
 const Stack = createStackNavigator();
@@ -34,14 +33,6 @@ const UserNavigator = (props) => {
             <Stack.Screen
                 name="Register"
                 component={Register}
-                options={{
-                    headerShown: false
-                }}
-            />
-
-            <Stack.Screen
-                name="Verify Email"
-                component={VerifyEmail}
                 options={{
                     headerShown: false
                 }}

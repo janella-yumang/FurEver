@@ -1,0 +1,181 @@
+/**
+ * Order Model - MongoDB/Mongoose Version (TEMPLATE - NEEDS COMPLETION)
+ * 
+ * This template shows the structure. You need to update routes/orders.js 
+ * to call these async methods with await.
+ */
+
+const { Order: OrderModel, addId, addIds } = require('../database');
+
+const Order = {
+  async find(filter = {}) {
+    try {
+      let query = {};
+      if (filter.userId || filter.user) query.userId = filter.userId || filter.user;
+      if (filter.status) {
+        if (typeof filter.status === 'object' && filter.status.$ne) {
+          query.status = { $ne: filter.status.$ne };
+        } else {
+          query.status = filter.status;
+        }
+      }
+      if (filter.dateOrdered && filter.dateOrdered.$gte) {
+        query.dateOrdered = { $gte: filter.dateOrdered.$gte instanceof Date ? filter.dateOrdered.$gte : new Date(filter.dateOrdered.$gte) };
+      }
+      const docs = await OrderModel.find(query)
+        .populate('userId', 'name email')
+        .populate('items.productId', 'name image price')
+        .sort({ dateOrdered: -1 });
+      return addIds(docs);
+    } catch (error) {
+      console.error('Order.find error:', error);
+      return [];
+    }
+  },
+
+  async findById(id) {
+    try {
+      const doc = await OrderModel.findById(id)
+        .populate('userId', 'name email')
+        .populate('items.productId', 'name image')
+        .populate('voucherId');
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Order.findById error:', error);
+      return null;
+    }
+  },
+
+  async create(data, orderItems) {
+    try {
+      const items = orderItems || data.orderItems || [];
+      const totalPrice = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const order = new OrderModel({
+        userId: data.userId || data.user || null,
+        shippingAddress1: data.shippingAddress1 || '',
+        shippingAddress2: data.shippingAddress2 || '',
+        phone: data.phone || '',
+        status: data.status || 'Pending',
+        totalPrice: totalPrice || data.totalPrice || 0,
+        voucherDiscount: data.voucherDiscount || 0,
+        voucherId: data.voucherId || null,
+        voucherCode: data.voucherCode || '',
+        paymentMethod: data.paymentMethod || '',
+        dateOrdered: data.dateOrdered || new Date(),
+        items: items,
+      });
+      const saved = await order.save();
+      return addId(saved);
+    } catch (error) {
+      console.error('Order.create error:', error);
+      throw error;
+    }
+  },
+
+  async update(id, data) {
+    try {
+      const updates = {};
+      if (data.status !== undefined) updates.status = data.status;
+      if (data.totalPrice !== undefined) updates.totalPrice = data.totalPrice;
+      if (data.voucherDiscount !== undefined) updates.voucherDiscount = data.voucherDiscount;
+      if (data.voucherId !== undefined) updates.voucherId = data.voucherId;
+      if (data.voucherCode !== undefined) updates.voucherCode = data.voucherCode;
+      if (data.shippingAddress1 !== undefined) updates.shippingAddress1 = data.shippingAddress1;
+      if (data.shippingAddress2 !== undefined) updates.shippingAddress2 = data.shippingAddress2;
+      if (data.phone !== undefined) updates.phone = data.phone;
+      if (data.paymentMethod !== undefined) updates.paymentMethod = data.paymentMethod;
+      updates.updatedAt = new Date();
+      const doc = await OrderModel.findByIdAndUpdate(id, updates, { new: true })
+        .populate('userId', 'name email')
+        .populate('items.productId', 'name image');
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Order.update error:', error);
+      throw error;
+    }
+  },
+
+  async delete(id) {
+    try {
+      const result = await OrderModel.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      console.error('Order.delete error:', error);
+      return false;
+    }
+  },
+
+  async getOrderItems(orderId) {
+    try {
+      const order = await OrderModel.findById(orderId);
+      return order ? order.items : [];
+    } catch (error) {
+      console.error('Order.getOrderItems error:', error);
+      return [];
+    }
+  },
+
+  // Analytics helpers
+  async salesByDate(startDate, endDate, period = 'day') {
+    try {
+      const matchStage = {
+        dateOrdered: {
+          $gte: startDate ? new Date(startDate) : new Date('2000-01-01'),
+          $lte: endDate ? new Date(endDate) : new Date('2099-12-31'),
+        },
+        status: { $ne: 'Cancelled' },
+      };
+      const groupExpr = period === 'month' 
+        ? { $dateToString: { format: '%Y-%m', date: '$dateOrdered' } }
+        : { $dateToString: { format: '%Y-%m-%d', date: '$dateOrdered' } };
+      const results = await OrderModel.aggregate([
+        { $match: matchStage },
+        {
+          $group: {
+            _id: groupExpr,
+            totalRevenue: { $sum: '$totalPrice' },
+            orderCount: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+      return results;
+    } catch (error) {
+      console.error('Order.salesByDate error:', error);
+      return [];
+    }
+  },
+
+  async salesTotals() {
+    try {
+      const result = await OrderModel.aggregate([
+        { $match: { status: { $ne: 'Cancelled' } } },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$totalPrice' },
+            totalOrders: { $sum: 1 },
+            avgOrderValue: { $avg: '$totalPrice' },
+          },
+        },
+      ]);
+      return result[0] || { totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 };
+    } catch (error) {
+      console.error('Order.salesTotals error:', error);
+      return { totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 };
+    }
+  },
+
+  async monthlyRevenue() {
+    try {
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      return await Order.salesByDate(sixMonthsAgo, new Date(), 'month');
+    } catch (error) {
+      console.error('Order.monthlyRevenue error:', error);
+      return [];
+    }
+  },
+};
+
+module.exports = Order;

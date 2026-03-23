@@ -9,7 +9,7 @@ const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -18,8 +18,8 @@ function requireAdmin(req, res, next) {
 
     const token = authHeader.replace('Bearer ', '').trim();
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = parseInt(decoded.userId, 10);
-    const user = User.findById(userId);
+    const userId = decoded.userId;
+    const user = await User.findById(userId);
 
     if (!user || !user.isAdmin || user.isActive === false) {
       return res.status(403).json({ message: 'Admin access required.' });
@@ -32,7 +32,7 @@ function requireAdmin(req, res, next) {
   }
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -41,8 +41,8 @@ function requireAuth(req, res, next) {
 
     const token = authHeader.replace('Bearer ', '').trim();
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = parseInt(decoded.userId, 10);
-    const user = User.findById(userId);
+    const userId = decoded.userId;
+    const user = await User.findById(userId);
     if (!user || user.isActive === false) {
       return res.status(401).json({ message: 'Invalid or inactive account.' });
     }
@@ -66,9 +66,9 @@ function maskToken(token = '') {
 }
 
 // GET notifications for a user
-router.get('/user/:userId', (req, res) => {
+router.get('/user/:userId', async (req, res) => {
   try {
-    const notifications = Notification.find({ user: parseInt(req.params.userId) });
+    const notifications = await Notification.find({ user: req.params.userId });
     return res.status(200).json(notifications);
   } catch (err) {
     console.error('Get notifications error:', err);
@@ -77,9 +77,9 @@ router.get('/user/:userId', (req, res) => {
 });
 
 // GET unread count
-router.get('/user/:userId/unread-count', (req, res) => {
+router.get('/user/:userId/unread-count', async (req, res) => {
   try {
-    const count = Notification.countUnread(parseInt(req.params.userId));
+    const count = await Notification.countUnread(req.params.userId);
     return res.status(200).json({ count });
   } catch (err) {
     console.error('Unread count error:', err);
@@ -88,11 +88,12 @@ router.get('/user/:userId/unread-count', (req, res) => {
 });
 
 // GET notification detail for a user
-router.get('/user/:userId/:id', (req, res) => {
+router.get('/user/:userId/:id', async (req, res) => {
   try {
-    const notification = Notification.findById(req.params.id);
+    const notification = await Notification.findById(req.params.id);
     if (!notification) return res.status(404).json({ message: 'Notification not found.' });
-    if (parseInt(notification.user, 10) !== parseInt(req.params.userId, 10)) {
+    const notificationUser = String(notification.userId || notification.user || '');
+    if (notificationUser !== String(req.params.userId)) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
     return res.status(200).json(notification);
@@ -103,27 +104,28 @@ router.get('/user/:userId/:id', (req, res) => {
 });
 
 // PUT register/update a user's push token (FCM only)
-router.put('/user/:userId/push-token', requireAuth, (req, res) => {
+router.put('/user/:userId/push-token', requireAuth, async (req, res) => {
   try {
-    const userId = parseInt(req.params.userId, 10);
+    const userId = req.params.userId;
 
-    if (req.user.id !== userId && !req.user.isAdmin) {
+    if (String(req.user.id || req.user._id) !== String(userId) && !req.user.isAdmin) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
-    const { pushToken } = req.body || {};
+    const { pushToken, tokenProvider } = req.body || {};
 
     if (!pushToken || !isSupportedPushToken(pushToken)) {
       return res.status(400).json({ message: 'A valid FCM token is required.' });
     }
 
-    const user = User.findById(userId);
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    User.update(userId, { pushToken });
+    await User.update(userId, { pushToken });
     console.log('[Push Token] Saved token for user:', {
       userId,
       email: user.email || '',
+      provider: tokenProvider || 'unknown',
       tokenMasked: maskToken(pushToken),
     });
     return res.status(200).json({ message: 'Push token saved.' });
@@ -133,19 +135,45 @@ router.put('/user/:userId/push-token', requireAuth, (req, res) => {
   }
 });
 
-// DELETE remove a user's push token on logout
-router.delete('/user/:userId/push-token', requireAuth, (req, res) => {
+// POST admin cleanup for stale/unsupported push tokens
+router.post('/push-token/cleanup-stale', requireAdmin, async (req, res) => {
   try {
-    const userId = parseInt(req.params.userId, 10);
+    const users = await User.find({ isActive: true });
+    let cleaned = 0;
 
-    if (req.user.id !== userId && !req.user.isAdmin) {
+    for (const user of users) {
+      if (!user.pushToken) continue;
+      if (isSupportedPushToken(user.pushToken)) continue;
+
+      await User.update(user.id || user._id, { pushToken: null });
+      cleaned += 1;
+    }
+
+    return res.status(200).json({
+      message: cleaned > 0
+        ? `Cleaned ${cleaned} stale push token(s).`
+        : 'No stale push tokens found.',
+      cleaned,
+    });
+  } catch (err) {
+    console.error('Cleanup stale push tokens error:', err);
+    return res.status(500).json({ message: 'Failed to cleanup stale push tokens.' });
+  }
+});
+
+// DELETE remove a user's push token on logout
+router.delete('/user/:userId/push-token', requireAuth, async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    if (String(req.user.id || req.user._id) !== String(userId) && !req.user.isAdmin) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
-    const user = User.findById(userId);
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    User.update(userId, { pushToken: null });
+    await User.update(userId, { pushToken: null });
     return res.status(200).json({ message: 'Push token removed.' });
   } catch (err) {
     console.error('Remove push token error:', err);
@@ -189,11 +217,11 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Expiration must be in the future.' });
     }
 
-    if (Voucher.findByCode(normalizedCode)) {
+    if (await Voucher.findByCode(normalizedCode)) {
       return res.status(409).json({ message: 'Promo code already exists. Please use another code.' });
     }
 
-    const voucher = Voucher.create({
+    const voucher = await Voucher.create({
       title,
       message,
       imageUrl: imageUrl || '',
@@ -205,10 +233,10 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
       startsAt: startsAt || null,
       expiresAt: expiryDate ? expiryDate.toISOString() : null,
       maxClaims: Number(maxClaims) || 0,
-      createdByUserId: req.user.id,
+      createdByUserId: req.user.id || req.user._id,
     });
 
-    const targets = User.find({ isActive: true });
+    const targets = await User.find({ isActive: true });
     if (!targets.length) {
       return res.status(200).json({ message: 'No eligible users found.', voucher, created: 0, push: { sent: 0, failed: 0 } });
     }
@@ -218,7 +246,7 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
     const targetById = new Map(targets.map((user) => [String(user.id), user]));
 
     for (const user of targets) {
-      Notification.create({
+      await Notification.create({
         user: user.id,
         type: 'promo_discount',
         title,
@@ -243,7 +271,7 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
             discountPercent: parsedDiscount,
             promoCode: normalizedCode,
             productId: productId || null,
-            voucherId: voucher.id,
+            voucherId: voucher.id || voucher._id,
             imageUrl: imageUrl || null,
             expiresAt: voucher.expiresAt || null,
             deepLink: deepLink || null,
@@ -307,7 +335,7 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
             token: user.pushToken,
             tokenMasked: maskToken(user.pushToken),
           });
-          User.update(user.id, { pushToken: null });
+          await User.update(user.id || user._id, { pushToken: null });
         }
       }
       console.log('[Push Broadcast] Cleared stale push tokens:', staleAssignments);
@@ -331,14 +359,14 @@ router.post('/promotions/broadcast', requireAdmin, async (req, res) => {
 });
 
 // GET available claimed vouchers for a user
-router.get('/promotions/vouchers/available/:userId', requireAuth, (req, res) => {
+router.get('/promotions/vouchers/available/:userId', requireAuth, async (req, res) => {
   try {
-    const userId = parseInt(req.params.userId, 10);
-    if (req.user.id !== userId && !req.user.isAdmin) {
+    const userId = req.params.userId;
+    if (String(req.user.id || req.user._id) !== String(userId) && !req.user.isAdmin) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
-    const vouchers = Voucher.getUserAvailableVouchers(userId);
+    const vouchers = await Voucher.getUserAvailableVouchers(userId);
     return res.status(200).json(vouchers);
   } catch (err) {
     console.error('Get available vouchers error:', err);
@@ -347,17 +375,17 @@ router.get('/promotions/vouchers/available/:userId', requireAuth, (req, res) => 
 });
 
 // POST claim a promo voucher from notification
-router.post('/promotions/vouchers/:voucherId/claim', requireAuth, (req, res) => {
+router.post('/promotions/vouchers/:voucherId/claim', requireAuth, async (req, res) => {
   try {
-    const voucherId = parseInt(req.params.voucherId, 10);
-    const requestedUserId = parseInt(req.body?.userId, 10);
-    const userId = Number.isNaN(requestedUserId) ? req.user.id : requestedUserId;
+    const voucherId = req.params.voucherId;
+    const requestedUserId = req.body?.userId;
+    const userId = requestedUserId || req.user.id || req.user._id;
 
-    if (req.user.id !== userId && !req.user.isAdmin) {
+    if (String(req.user.id || req.user._id) !== String(userId) && !req.user.isAdmin) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
-    const voucher = Voucher.findById(voucherId);
+    const voucher = await Voucher.findById(voucherId);
     if (!voucher || !voucher.isActive) {
       return res.status(404).json({ message: 'Voucher not found or inactive.' });
     }
@@ -373,12 +401,12 @@ router.post('/promotions/vouchers/:voucherId/claim', requireAuth, (req, res) => 
       return res.status(400).json({ message: 'Voucher claim limit reached.' });
     }
 
-    const claimResult = Voucher.claim(voucherId, userId);
+    const claimResult = await Voucher.claim(voucherId, userId);
     if (claimResult.alreadyClaimed) {
       return res.status(200).json({ message: 'Voucher already claimed.', voucher });
     }
 
-    return res.status(201).json({ message: 'Voucher claimed successfully.', voucher: Voucher.findById(voucherId) });
+    return res.status(201).json({ message: 'Voucher claimed successfully.', voucher: await Voucher.findById(voucherId) });
   } catch (err) {
     if (String(err?.message || '').includes('UNIQUE')) {
       return res.status(200).json({ message: 'Voucher already claimed.' });
@@ -389,9 +417,9 @@ router.post('/promotions/vouchers/:voucherId/claim', requireAuth, (req, res) => 
 });
 
 // PUT mark single notification as read
-router.put('/:id/read', (req, res) => {
+router.put('/:id/read', async (req, res) => {
   try {
-    const notification = Notification.update(req.params.id, { read: true });
+    const notification = await Notification.update(req.params.id, { read: true });
     if (!notification) return res.status(404).json({ message: 'Notification not found.' });
     return res.status(200).json(notification);
   } catch (err) {
@@ -401,10 +429,10 @@ router.put('/:id/read', (req, res) => {
 });
 
 // PUT mark all as read
-router.put('/user/:userId/mark-all-read', (req, res) => {
+router.put('/user/:userId/mark-all-read', async (req, res) => {
   try {
-    const count = Notification.markAllRead(parseInt(req.params.userId));
-    return res.status(200).json({ message: `${count} notifications marked as read.` });
+    await Notification.markAllRead(req.params.userId);
+    return res.status(200).json({ message: 'Notifications marked as read.' });
   } catch (err) {
     console.error('Mark all read error:', err);
     return res.status(500).json({ message: 'Failed to mark all as read.' });
@@ -412,9 +440,9 @@ router.put('/user/:userId/mark-all-read', (req, res) => {
 });
 
 // DELETE notification
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const deleted = Notification.delete(req.params.id);
+    const deleted = await Notification.delete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Notification not found.' });
     return res.status(200).json({ message: 'Notification deleted.' });
   } catch (err) {

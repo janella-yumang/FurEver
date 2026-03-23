@@ -1,94 +1,119 @@
-const { db, addId, addIds, nowISO } = require('../database');
+const { User: UserModel, addId, addIds } = require('../database');
 
 const User = {
-  find(filter = {}) {
-    let sql = 'SELECT * FROM users';
-    const conditions = [];
-    const params = [];
-    if (filter.isAdmin !== undefined) { conditions.push('isAdmin = ?'); params.push(filter.isAdmin ? 1 : 0); }
-    if (filter.isActive !== undefined) { conditions.push('isActive = ?'); params.push(filter.isActive ? 1 : 0); }
-    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-    sql += ' ORDER BY createdAt DESC';
-    return db.prepare(sql).all(...params).map(r => User._parseRow(addId(r)));
-  },
-
-  findOne(filter) {
-    if (filter.email) {
-      const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(filter.email.toLowerCase());
-      return row ? User._parseRow(addId(row)) : null;
+  async find(filter = {}) {
+    try {
+      let query = {};
+      if (filter.isAdmin !== undefined) query.isAdmin = filter.isAdmin;
+      if (filter.isActive !== undefined) query.isActive = filter.isActive;
+      const docs = await UserModel.find(query).sort({ createdAt: -1 });
+      return addIds(docs);
+    } catch (error) {
+      console.error('User.find error:', error);
+      return [];
     }
-    if (filter.id || filter._id) return User.findById(filter.id || filter._id);
-    return null;
   },
 
-  findById(id) {
-    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-    return row ? User._parseRow(addId(row)) : null;
+  async findOne(filter) {
+    try {
+      if (filter.email) {
+        const doc = await UserModel.findOne({ email: filter.email.toLowerCase() });
+        return doc ? addId(doc) : null;
+      }
+      if (filter.id || filter._id) {
+        return await User.findById(filter.id || filter._id);
+      }
+      return null;
+    } catch (error) {
+      console.error('User.findOne error:', error);
+      return null;
+    }
   },
 
-  create(data) {
-    const now = nowISO();
-    const stmt = db.prepare(`
-      INSERT INTO users (name, email, password, phone, isAdmin, role, shippingAddress, preferredPets, image, isActive, emailVerified, verificationCode, verificationExpires, googleId, pushToken, loyaltyPoints, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      data.name, (data.email || '').toLowerCase(), data.password, data.phone || '',
-      data.isAdmin ? 1 : 0, data.role || 'customer', data.shippingAddress || '',
-      JSON.stringify(data.preferredPets || []), data.image || '',
-      data.isActive !== undefined ? (data.isActive ? 1 : 0) : 1,
-      data.emailVerified ? 1 : 0, data.verificationCode || null,
-      data.verificationExpires || null, data.googleId || null, data.pushToken || null,
-      parseInt(data.loyaltyPoints) || 0, now, now
-    );
-    return User.findById(info.lastInsertRowid);
+  async findById(id) {
+    try {
+      const doc = await UserModel.findById(id);
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('User.findById error:', error);
+      return null;
+    }
   },
 
-  update(id, data) {
-    const fields = []; const params = [];
-    if (data.name !== undefined) { fields.push('name = ?'); params.push(data.name); }
-    if (data.email !== undefined) { fields.push('email = ?'); params.push(data.email.toLowerCase()); }
-    if (data.phone !== undefined) { fields.push('phone = ?'); params.push(data.phone); }
-    if (data.shippingAddress !== undefined) { fields.push('shippingAddress = ?'); params.push(data.shippingAddress); }
-    if (data.preferredPets !== undefined) { fields.push('preferredPets = ?'); params.push(JSON.stringify(data.preferredPets)); }
-    if (data.image !== undefined) { fields.push('image = ?'); params.push(data.image); }
-    if (data.isAdmin !== undefined) { fields.push('isAdmin = ?'); params.push(data.isAdmin ? 1 : 0); }
-    if (data.role !== undefined) { fields.push('role = ?'); params.push(data.role); }
-    if (data.isActive !== undefined) { fields.push('isActive = ?'); params.push(data.isActive ? 1 : 0); }
-    if (data.emailVerified !== undefined) { fields.push('emailVerified = ?'); params.push(data.emailVerified ? 1 : 0); }
-    if (data.verificationCode !== undefined) { fields.push('verificationCode = ?'); params.push(data.verificationCode); }
-    if (data.verificationExpires !== undefined) { fields.push('verificationExpires = ?'); params.push(data.verificationExpires); }
-    if (data.googleId !== undefined) { fields.push('googleId = ?'); params.push(data.googleId); }
-    if (data.pushToken !== undefined) { fields.push('pushToken = ?'); params.push(data.pushToken); }
-    if (data.password !== undefined) { fields.push('password = ?'); params.push(data.password); }
-    if (data.loyaltyPoints !== undefined) { fields.push('loyaltyPoints = ?'); params.push(parseInt(data.loyaltyPoints) || 0); }
-    if (!fields.length) return User.findById(id);
-    fields.push('updatedAt = ?'); params.push(nowISO()); params.push(id);
-    db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-    return User.findById(id);
+  async create(data) {
+    try {
+      const user = new UserModel({
+        name: data.name,
+        email: (data.email || '').toLowerCase(),
+        password: data.password,
+        phone: data.phone || '',
+        isAdmin: data.isAdmin ? true : false,
+        role: data.role || 'customer',
+        shippingAddress: data.shippingAddress || '',
+        preferredPets: Array.isArray(data.preferredPets) ? data.preferredPets : (data.preferredPets || []),
+        image: data.image || '',
+        isActive: data.isActive !== undefined ? !!data.isActive : true,
+        emailVerified: !!data.emailVerified,
+        verificationCode: data.verificationCode || null,
+        verificationExpires: data.verificationExpires || null,
+        googleId: data.googleId || null,
+        pushToken: data.pushToken || null,
+        loyaltyPoints: parseInt(data.loyaltyPoints) || 0,
+      });
+      const saved = await user.save();
+      return addId(saved);
+    } catch (error) {
+      console.error('User.create error:', error);
+      throw error;
+    }
   },
 
-  delete(id) {
-    return db.prepare('DELETE FROM users WHERE id = ?').run(id).changes > 0;
+  async update(id, data) {
+    try {
+      const updates = {};
+      if (data.name !== undefined) updates.name = data.name;
+      if (data.email !== undefined) updates.email = data.email.toLowerCase();
+      if (data.phone !== undefined) updates.phone = data.phone;
+      if (data.shippingAddress !== undefined) updates.shippingAddress = data.shippingAddress;
+      if (data.preferredPets !== undefined) updates.preferredPets = Array.isArray(data.preferredPets) ? data.preferredPets : [];
+      if (data.image !== undefined) updates.image = data.image;
+      if (data.isAdmin !== undefined) updates.isAdmin = !!data.isAdmin;
+      if (data.role !== undefined) updates.role = data.role;
+      if (data.isActive !== undefined) updates.isActive = !!data.isActive;
+      if (data.emailVerified !== undefined) updates.emailVerified = !!data.emailVerified;
+      if (data.verificationCode !== undefined) updates.verificationCode = data.verificationCode;
+      if (data.verificationExpires !== undefined) updates.verificationExpires = data.verificationExpires;
+      if (data.googleId !== undefined) updates.googleId = data.googleId;
+      if (data.pushToken !== undefined) updates.pushToken = data.pushToken;
+      if (data.password !== undefined) updates.password = data.password;
+      if (data.loyaltyPoints !== undefined) updates.loyaltyPoints = parseInt(data.loyaltyPoints) || 0;
+      
+      updates.updatedAt = new Date();
+      const doc = await UserModel.findByIdAndUpdate(id, updates, { new: true });
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('User.update error:', error);
+      throw error;
+    }
   },
 
-  _parseRow(row) {
-    if (!row) return null;
-    return {
-      ...row,
-      isAdmin: !!row.isAdmin,
-      isActive: row.isActive !== 0,
-      emailVerified: !!row.emailVerified,
-      preferredPets: typeof row.preferredPets === 'string' ? JSON.parse(row.preferredPets || '[]') : (row.preferredPets || []),
-      loyaltyPoints: parseInt(row.loyaltyPoints) || 0,
-    };
+  async delete(id) {
+    try {
+      const result = await UserModel.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      console.error('User.delete error:', error);
+      return false;
+    }
   },
 
   toJSON(user) {
     if (!user) return null;
-    const { password, verificationCode, verificationExpires, pushToken, ...safe } = user;
+    const obj = user.toObject ? user.toObject() : user;
+    const { password, verificationCode, ...safe } = obj;
     return safe;
   },
 };
 
 module.exports = User;
+

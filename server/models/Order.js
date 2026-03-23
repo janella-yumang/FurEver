@@ -1,179 +1,436 @@
-const { db, addId, addIds, nowISO } = require('../database');
+/**
+ * Order Model - MongoDB/Mongoose Implementation
+ * Handles order management, order items, and analytics
+ */
+
+const { Order: OrderModel } = require('../database');
+const { addId, addIds } = require('../database');
 
 const Order = {
-  find(filter = {}) {
-    let sql = 'SELECT o.*, u.name as userName, u.email as userEmail FROM orders o LEFT JOIN users u ON o.userId = u.id';
-    const conditions = []; const params = [];
-    if (filter.userId || filter.user) { conditions.push('o.userId = ?'); params.push(filter.userId || filter.user); }
-    if (filter.status) {
-      if (typeof filter.status === 'object' && filter.status.$ne) {
-        conditions.push('o.status != ?'); params.push(filter.status.$ne);
-      } else {
-        conditions.push('o.status = ?'); params.push(filter.status);
+  
+  /**
+   * Find orders with filtering
+   */
+  async find(filter = {}) {
+    try {
+      let query = {};
+      
+      if (filter.userId || filter.user) {
+        query.userId = filter.userId || filter.user;
       }
+      
+      if (filter.status) {
+        if (typeof filter.status === 'object' && filter.status.$ne) {
+          query.status = { $ne: filter.status.$ne };
+        } else {
+          query.status = filter.status;
+        }
+      }
+      
+      if (filter.dateOrdered?.$gte) {
+        const date = filter.dateOrdered.$gte instanceof Date 
+          ? filter.dateOrdered.$gte 
+          : new Date(filter.dateOrdered.$gte);
+        query.dateOrdered = { $gte: date };
+      }
+      
+      const docs = await OrderModel.find(query)
+        .populate('userId', 'name email')
+        .sort({ dateOrdered: -1 });
+
+      return addIds(docs).map((order) => {
+        order.orderItems = order.items || [];
+        return order;
+      });
+    } catch (error) {
+      console.error('Order.find error:', error);
+      return [];
     }
-    if (filter.dateOrdered && filter.dateOrdered.$gte) {
-      conditions.push('o.dateOrdered >= ?'); params.push(filter.dateOrdered.$gte instanceof Date ? filter.dateOrdered.$gte.toISOString() : filter.dateOrdered.$gte);
+  },
+  
+  /**
+   * Find order by ID
+   */
+  async findById(id) {
+    try {
+      const doc = await OrderModel.findById(id)
+        .populate('userId', 'name email');
+      
+      if (!doc) return null;
+      
+      // Format user info to match legacy structure
+      const order = addId(doc.toObject());
+      if (doc.userId) {
+        order.user = {
+          _id: String(doc.userId._id),
+          name: doc.userId.name,
+          email: doc.userId.email,
+        };
+      }
+      order.orderItems = order.items || [];
+      
+      return order;
+    } catch (error) {
+      console.error('Order.findById error:', error);
+      return null;
     }
-    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-    sql += ' ORDER BY o.dateOrdered DESC';
-    return db.prepare(sql).all(...params).map(Order._parseRow);
   },
+  
+  /**
+   * Create order with items
+   */
+  async create(data, orderItems) {
+    try {
+      const now = new Date();
+      const items = orderItems || data.orderItems || [];
+      
+      const orderData = {
+        shippingAddress1: data.shippingAddress1 || '',
+        shippingAddress2: data.shippingAddress2 || '',
+        phone: data.phone || '',
+        status: data.status || 'Pending',
+        totalPrice: data.totalPrice || 0,
+        voucherDiscount: data.voucherDiscount || 0,
+        voucherId: data.voucherId || null,
+        voucherCode: data.voucherCode || '',
+        paymentMethod: data.paymentMethod || '',
+        userId: data.userId || data.user || null,
+        items: items.map(item => ({
+          productId: item.product || item.productId || null,
+          name: item.name || '',
+          price: item.price || 0,
+          image: item.image || '',
+          quantity: item.quantity || 1,
+        })),
+        dateOrdered: data.dateOrdered || now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      const order = new OrderModel(orderData);
+      const saved = await order.save();
+      
+      const populated = await OrderModel.findById(saved._id)
+        .populate('userId', 'name email');
 
-  findById(id) {
-    const row = db.prepare('SELECT o.*, u.name as userName, u.email as userEmail FROM orders o LEFT JOIN users u ON o.userId = u.id WHERE o.id = ?').get(id);
-    return row ? Order._parseRow(row) : null;
-  },
-
-  create(data, orderItems) {
-    const now = nowISO();
-    const info = db.prepare(`
-      INSERT INTO orders (shippingAddress1, shippingAddress2, phone, status, totalPrice, voucherDiscount, voucherId, voucherCode, paymentMethod, userId, dateOrdered, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      data.shippingAddress1 || '', data.shippingAddress2 || '', data.phone || '',
-      data.status || 'Pending', data.totalPrice || 0,
-      data.voucherDiscount || 0,
-      data.voucherId || null,
-      data.voucherCode || '',
-      data.paymentMethod || '',
-      data.userId || data.user || null, data.dateOrdered || now, now, now
-    );
-    const orderId = info.lastInsertRowid;
-
-    // Insert order items (accept second arg or data.orderItems)
-    const items = orderItems || data.orderItems || [];
-    const itemStmt = db.prepare('INSERT INTO order_items (orderId, productId, name, price, image, quantity) VALUES (?, ?, ?, ?, ?, ?)');
-    for (const item of items) {
-      itemStmt.run(orderId, item.product || item.productId || null, item.name || '', item.price || 0, item.image || '', item.quantity || 1);
+      const order = addId(populated.toObject());
+      order.orderItems = order.items || [];
+      return order;
+    } catch (error) {
+      console.error('Order.create error:', error);
+      throw error;
     }
-    return Order.findById(orderId);
   },
-
-  update(id, data) {
-    const fields = []; const params = [];
-    if (data.status !== undefined) { fields.push('status = ?'); params.push(data.status); }
-    if (data.totalPrice !== undefined) { fields.push('totalPrice = ?'); params.push(data.totalPrice); }
-    if (data.voucherDiscount !== undefined) { fields.push('voucherDiscount = ?'); params.push(data.voucherDiscount); }
-    if (data.voucherId !== undefined) { fields.push('voucherId = ?'); params.push(data.voucherId); }
-    if (data.voucherCode !== undefined) { fields.push('voucherCode = ?'); params.push(data.voucherCode); }
-    if (data.shippingAddress1 !== undefined) { fields.push('shippingAddress1 = ?'); params.push(data.shippingAddress1); }
-    if (data.shippingAddress2 !== undefined) { fields.push('shippingAddress2 = ?'); params.push(data.shippingAddress2); }
-    if (data.phone !== undefined) { fields.push('phone = ?'); params.push(data.phone); }
-    if (data.paymentMethod !== undefined) { fields.push('paymentMethod = ?'); params.push(data.paymentMethod); }
-    if (!fields.length) return Order.findById(id);
-    fields.push('updatedAt = ?'); params.push(nowISO()); params.push(id);
-    db.prepare(`UPDATE orders SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-    return Order.findById(id);
+  
+  /**
+   * Update order
+   */
+  async update(id, data) {
+    try {
+      const updateData = { 
+        ...data,
+        updatedAt: new Date(),
+      };
+      
+      const doc = await OrderModel.findByIdAndUpdate(
+        id,
+        { $set: updateData },
+        { new: true }
+      )
+        .populate('userId', 'name email');
+      
+      if (!doc) return null;
+      
+      const order = addId(doc.toObject());
+      if (doc.userId) {
+        order.user = {
+          _id: String(doc.userId._id),
+          name: doc.userId.name,
+          email: doc.userId.email,
+        };
+      }
+      order.orderItems = order.items || [];
+      
+      return order;
+    } catch (error) {
+      console.error('Order.update error:', error);
+      return null;
+    }
   },
-
-  delete(id) {
-    return db.prepare('DELETE FROM orders WHERE id = ?').run(id).changes > 0;
+  
+  /**
+   * Delete order
+   */
+  async delete(id) {
+    try {
+      const result = await OrderModel.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      console.error('Order.delete error:', error);
+      return false;
+    }
   },
-
-  getOrderItems(orderId) {
-    return db.prepare('SELECT * FROM order_items WHERE orderId = ?').all(orderId).map(r => ({
-      ...r, _id: String(r.id), product: r.productId ? String(r.productId) : null,
-    }));
+  
+  /**
+   * Get order items for an order
+   */
+  async getOrderItems(orderId) {
+    try {
+      const order = await OrderModel.findById(orderId);
+      if (!order) return [];
+      
+      return (order.items || []).map(item => ({
+        ...item,
+        _id: item._id.toString(),
+        product: item.productId ? String(item.productId) : null,
+      }));
+    } catch (error) {
+      console.error('Order.getOrderItems error:', error);
+      return [];
+    }
   },
-
-  // ─── Analytics helpers ─────────────────────────────────
-  salesByDate(startDate, endDate, period = 'day') {
-    const sd = startDate || '2000-01-01';
-    const ed = endDate || '2099-12-31';
-    const groupExpr = period === 'month' ? "strftime('%Y-%m', dateOrdered)" : "date(dateOrdered)";
-    const rows = db.prepare(`
-      SELECT ${groupExpr} as period, SUM(totalPrice) as totalRevenue, COUNT(*) as orderCount
-      FROM orders WHERE dateOrdered >= ? AND dateOrdered <= ? AND status != 'Cancelled'
-      GROUP BY ${groupExpr} ORDER BY period ASC
-    `).all(sd, ed);
-    return rows.map(r => ({ _id: r.period, totalRevenue: r.totalRevenue, orderCount: r.orderCount }));
+  
+  // ─── Analytics Methods ─────────────────────────────────
+  
+  /**
+   * Get sales by date/month
+   */
+  async salesByDate(startDate, endDate, period = 'day') {
+    try {
+      const sd = startDate ? new Date(startDate) : new Date('2000-01-01');
+      const ed = endDate ? new Date(endDate) : new Date('2099-12-31');
+      
+      const groupStage = period === 'month' 
+        ? { $dateToString: { format: '%Y-%m', date: '$dateOrdered' } }
+        : { $dateToString: { format: '%Y-%m-%d', date: '$dateOrdered' } };
+      
+      const results = await OrderModel.aggregate([
+        {
+          $match: {
+            dateOrdered: { $gte: sd, $lte: ed },
+            status: { $ne: 'Cancelled' },
+          },
+        },
+        {
+          $group: {
+            _id: groupStage,
+            totalRevenue: { $sum: '$totalPrice' },
+            orderCount: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+      
+      return results;
+    } catch (error) {
+      console.error('Order.salesByDate error:', error);
+      return [];
+    }
   },
-
-  salesTotals() {
-    return db.prepare(`
-      SELECT COALESCE(SUM(totalPrice), 0) as totalRevenue, COUNT(*) as totalOrders, COALESCE(AVG(totalPrice), 0) as avgOrderValue
-      FROM orders WHERE status != 'Cancelled'
-    `).get();
+  
+  /**
+   * Get total sales statistics
+   */
+  async salesTotals() {
+    try {
+      const results = await OrderModel.aggregate([
+        {
+          $match: { status: { $ne: 'Cancelled' } },
+        },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$totalPrice' },
+            totalOrders: { $sum: 1 },
+            avgOrderValue: { $avg: '$totalPrice' },
+          },
+        },
+      ]);
+      
+      return results.length > 0 ? results[0] : { totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 };
+    } catch (error) {
+      console.error('Order.salesTotals error:', error);
+      return { totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 };
+    }
   },
-
-  monthlyRevenue() {
-    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
-    return db.prepare(`
-      SELECT CAST(strftime('%m', dateOrdered) AS INTEGER) as month, SUM(totalPrice) as revenue, COUNT(*) as orders
-      FROM orders WHERE dateOrdered >= ? AND status != 'Cancelled'
-      GROUP BY strftime('%m', dateOrdered) ORDER BY month ASC
-    `).all(yearStart);
+  
+  /**
+   * Get monthly revenue for current year
+   */
+  async monthlyRevenue() {
+    try {
+      const yearStart = new Date(new Date().getFullYear(), 0, 1);
+      
+      const results = await OrderModel.aggregate([
+        {
+          $match: {
+            dateOrdered: { $gte: yearStart },
+            status: { $ne: 'Cancelled' },
+          },
+        },
+        {
+          $group: {
+            _id: { $month: '$dateOrdered' },
+            revenue: { $sum: '$totalPrice' },
+            orders: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+      
+      return results;
+    } catch (error) {
+      console.error('Order.monthlyRevenue error:', error);
+      return [];
+    }
   },
-
-  bestSellers(limit = 10) {
-    return db.prepare(`
-      SELECT oi.productId, p.name, p.image,
-        SUM(oi.quantity) as totalQuantity,
-        SUM(oi.price * oi.quantity) as totalRevenue,
-        COUNT(DISTINCT oi.orderId) as orderCount
-      FROM order_items oi
-      JOIN orders o ON oi.orderId = o.id
-      JOIN products p ON oi.productId = p.id
-      WHERE o.status != 'Cancelled'
-      GROUP BY oi.productId
-      ORDER BY totalQuantity DESC LIMIT ?
-    `).all(limit).map(r => ({
-      _id: String(r.productId), name: r.name, image: r.image,
-      totalQuantity: r.totalQuantity, totalRevenue: r.totalRevenue, orderCount: r.orderCount,
-    }));
+  
+  /**
+   * Get best selling products
+   */
+  async bestSellers(limit = 10) {
+    try {
+      const results = await OrderModel.aggregate([
+        { $match: { status: { $ne: 'Cancelled' } } },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: '$items.productId',
+            name: { $first: '$items.name' },
+            image: { $first: '$items.image' },
+            totalQuantity: { $sum: '$items.quantity' },
+            totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+            orderCount: { $sum: 1 },
+          },
+        },
+        { $sort: { totalQuantity: -1 } },
+        { $limit: limit },
+      ]);
+      
+      return results;
+    } catch (error) {
+      console.error('Order.bestSellers error:', error);
+      return [];
+    }
   },
-
-  topCustomers(limit = 10) {
-    return db.prepare(`
-      SELECT o.userId, u.name, u.email,
-        SUM(o.totalPrice) as totalSpent, COUNT(*) as orderCount, AVG(o.totalPrice) as avgOrderValue
-      FROM orders o JOIN users u ON o.userId = u.id
-      WHERE o.status != 'Cancelled' AND o.userId IS NOT NULL
-      GROUP BY o.userId ORDER BY totalSpent DESC LIMIT ?
-    `).all(limit).map(r => ({
-      _id: String(r.userId), name: r.name, email: r.email,
-      totalSpent: r.totalSpent, orderCount: r.orderCount, avgOrderValue: r.avgOrderValue,
-    }));
+  
+  /**
+   * Get top customers
+   */
+  async topCustomers(limit = 10) {
+    try {
+      const results = await OrderModel.aggregate([
+        { $match: { status: { $ne: 'Cancelled' }, userId: { $ne: null } } },
+        {
+          $group: {
+            _id: '$userId',
+            totalSpent: { $sum: '$totalPrice' },
+            orderCount: { $sum: 1 },
+            avgOrderValue: { $avg: '$totalPrice' },
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'userInfo',
+          },
+        },
+        { $unwind: '$userInfo' },
+        {
+          $project: {
+            _id: 1,
+            name: '$userInfo.name',
+            email: '$userInfo.email',
+            totalSpent: 1,
+            orderCount: 1,
+            avgOrderValue: 1,
+          },
+        },
+        { $sort: { totalSpent: -1 } },
+        { $limit: limit },
+      ]);
+      
+      return results;
+    } catch (error) {
+      console.error('Order.topCustomers error:', error);
+      return [];
+    }
   },
-
-  statusDistribution() {
-    return db.prepare('SELECT status as _id, COUNT(*) as count FROM orders GROUP BY status ORDER BY count DESC').all();
+  
+  /**
+   * Get order status distribution
+   */
+  async statusDistribution() {
+    try {
+      const results = await OrderModel.aggregate([
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1 } },
+      ]);
+      
+      return results;
+    } catch (error) {
+      console.error('Order.statusDistribution error:', error);
+      return [];
+    }
   },
-
-  paymentMethodStats() {
-    return db.prepare(`
-      SELECT COALESCE(paymentMethod, 'Unknown') as _id, COUNT(*) as count, SUM(totalPrice) as totalRevenue
-      FROM orders GROUP BY paymentMethod ORDER BY count DESC
-    `).all();
+  
+  /**
+   * Get payment method statistics
+   */
+  async paymentMethodStats() {
+    try {
+      const results = await OrderModel.aggregate([
+        {
+          $group: {
+            _id: { $ifNull: ['$paymentMethod', 'Unknown'] },
+            count: { $sum: 1 },
+            totalRevenue: { $sum: '$totalPrice' },
+          },
+        },
+        { $sort: { count: -1 } },
+      ]);
+      
+      return results;
+    } catch (error) {
+      console.error('Order.paymentMethodStats error:', error);
+      return [];
+    }
   },
-
-  categorySales() {
-    return db.prepare(`
-      SELECT c.id as catId, COALESCE(c.name, 'Uncategorized') as name,
-        SUM(oi.price * oi.quantity) as totalRevenue, SUM(oi.quantity) as totalQuantity
-      FROM order_items oi
-      JOIN orders o ON oi.orderId = o.id
-      LEFT JOIN products p ON oi.productId = p.id
-      LEFT JOIN categories c ON p.category = c.id
-      WHERE o.status != 'Cancelled'
-      GROUP BY c.id ORDER BY totalRevenue DESC
-    `).all().map(r => ({ _id: r.catId ? String(r.catId) : null, name: r.name, totalRevenue: r.totalRevenue, totalQuantity: r.totalQuantity }));
-  },
-
-  _parseRow(row) {
-    if (!row) return null;
-    const order = {
-      ...row,
-      _id: String(row.id),
-      user: row.userId ? { _id: String(row.userId), name: row.userName, email: row.userEmail } : null,
-      orderItems: Order.getOrderItems(row.id),
-      voucherId: row.voucherId ? String(row.voucherId) : null,
-      voucherDiscount: parseFloat(row.voucherDiscount) || 0,
-      voucherCode: row.voucherCode || '',
-      userName: undefined, userEmail: undefined,
-    };
-    return order;
+  
+  /**
+   * Get category sales
+   */
+  async categorySales() {
+    try {
+      const results = await OrderModel.aggregate([
+        { $match: { status: { $ne: 'Cancelled' } } },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+            totalQuantity: { $sum: '$items.quantity' },
+          },
+        },
+      ]);
+      
+      return results.map(r => ({
+        _id: r._id,
+        name: 'Total Category Sales',
+        totalRevenue: r.totalRevenue,
+        totalQuantity: r.totalQuantity,
+      }));
+    } catch (error) {
+      console.error('Order.categorySales error:', error);
+      return [];
+    }
   },
 };
 

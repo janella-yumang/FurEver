@@ -6,11 +6,10 @@ import EasyButton from "./StyledComponents/EasyButton";
 import Toast from "react-native-toast-message";
 import { Picker } from "@react-native-picker/picker";
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 import axios from "axios";
 import baseURL from "../assets/common/baseurl";
 import { useNavigation } from '@react-navigation/native';
+import { getStoredJwt } from "../assets/common/authToken";
 
 const STATUS_CONFIG = {
   Pending: { color: '#FF8C42', icon: 'time', trafficLight: 'unavailable' },
@@ -41,15 +40,9 @@ const OrderCard = ({ item, update }) => {
   useEffect(() => {
     const loadToken = async () => {
       try {
-        const secureToken = await SecureStore.getItemAsync('jwt');
-        if (secureToken) {
-          setToken(secureToken);
-          return;
-        }
-
-        const asyncToken = await AsyncStorage.getItem('jwt');
-        if (asyncToken) {
-          setToken(asyncToken);
+        const storedToken = await getStoredJwt();
+        if (storedToken) {
+          setToken(storedToken);
         }
       } catch (error) {
         console.log('Load order card auth token error:', error?.message || error);
@@ -63,8 +56,7 @@ const OrderCard = ({ item, update }) => {
     let authToken = token;
 
     if (!authToken) {
-      const secureToken = await SecureStore.getItemAsync('jwt');
-      authToken = secureToken || await AsyncStorage.getItem('jwt');
+      authToken = await getStoredJwt();
       if (authToken) setToken(authToken);
     }
 

@@ -1,12 +1,12 @@
 // import "core-js/stable/atob";
 import { jwtDecode } from "jwt-decode"
-import * as SecureStore from 'expo-secure-store'
 import Toast from "react-native-toast-message"
 import baseURL from "../../assets/common/baseurl"
 import store from "../../Redux/store"
 import { loadUserCart, loadUserWishlist, setCartUserId } from "../../Redux/Actions/cartActions"
 import { SET_CART, SET_WISHLIST } from "../../Redux/constants"
 import { registerPushTokenForUser } from "../../assets/common/pushNotifications"
+import { setStoredJwt, getStoredJwt, clearStoredJwt } from "../../assets/common/authToken"
 
 export const SET_CURRENT_USER = "SET_CURRENT_USER";
 
@@ -28,23 +28,11 @@ export const loginUser = (user, dispatch, navigation) => {
     .then((res) => {
         if (res.status === 403) {
             return res.json().then((data) => {
-                if (data.requiresVerification) {
-                    Toast.show({
-                        topOffset: 60,
-                        type: "info",
-                        text1: "Email not verified",
-                        text2: "Please verify your email to continue.",
-                    });
-                    if (navigation) {
-                        navigation.navigate("Verify Email", { email: data.email || normalizedUser.email });
-                    }
-                } else {
-                    Toast.show({
-                        topOffset: 60,
-                        type: "error",
-                        text1: data.message || "Login failed",
-                    });
-                }
+                Toast.show({
+                    topOffset: 60,
+                    type: "error",
+                    text1: data.message || "Login failed",
+                });
                 return null;
             });
         }
@@ -64,7 +52,7 @@ export const loginUser = (user, dispatch, navigation) => {
     .then(async (data) => {
         if (data && data.token) {
             const token = data.token;
-            await SecureStore.setItemAsync("jwt", token);
+            await setStoredJwt(token);
             const decoded = jwtDecode(token)
             dispatch(setCurrentUser(decoded, data.user || normalizedUser))
 
@@ -105,7 +93,7 @@ export const getUserProfile = (id) => {
 
 export const logoutUser = async (dispatch) => {
     try {
-        const token = await SecureStore.getItemAsync("jwt");
+        const token = await getStoredJwt();
         if (token) {
             const decoded = jwtDecode(token);
             if (decoded?.userId) {
@@ -117,7 +105,7 @@ export const logoutUser = async (dispatch) => {
             }
         }
     } catch (_) {}
-    await SecureStore.deleteItemAsync("jwt").catch(() => {});
+    await clearStoredJwt();
     setCartUserId(null);
     store.dispatch({ type: SET_CART, payload: [] });
     store.dispatch({ type: SET_WISHLIST, payload: [] });

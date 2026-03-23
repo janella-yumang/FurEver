@@ -1,208 +1,263 @@
-const { db, addId, addIds, nowISO } = require('../database');
+const { Product: ProductModel, Review: ReviewModel, addId, addIds } = require('../database');
 
 const Product = {
-  find(filter = {}) {
-    let sql = `SELECT p.*, c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon
-               FROM products p LEFT JOIN categories c ON p.category = c.id`;
-    const conditions = []; const params = [];
-    if (filter.categoryIds && filter.categoryIds.length) {
-      const placeholders = filter.categoryIds.map(() => '?').join(',');
-      conditions.push(`p.category IN (${placeholders})`);
-      params.push(...filter.categoryIds);
-    }
-    if (filter.countInStock !== undefined) {
-      if (typeof filter.countInStock === 'object') {
-        if (filter.countInStock.$lte !== undefined) { conditions.push('p.countInStock <= ?'); params.push(filter.countInStock.$lte); }
-        if (filter.countInStock.$gt !== undefined) { conditions.push('p.countInStock > ?'); params.push(filter.countInStock.$gt); }
-      } else {
-        conditions.push('p.countInStock = ?'); params.push(filter.countInStock);
+  async find(filter = {}) {
+    try {
+      let query = {};
+      if (filter.categoryIds && filter.categoryIds.length) {
+        query.category = { $in: filter.categoryIds };
       }
-    }
-    if (filter.barcode) { conditions.push('p.barcode = ?'); params.push(filter.barcode); }
-    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-    sql += ' ORDER BY p.createdAt DESC';
-    return db.prepare(sql).all(...params).map(Product._parseRow);
-  },
-
-  findById(id) {
-    const row = db.prepare(`
-      SELECT p.*, c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon
-      FROM products p LEFT JOIN categories c ON p.category = c.id
-      WHERE p.id = ?
-    `).get(id);
-    return row ? Product._parseRow(row) : null;
-  },
-
-  findByBarcode(code) {
-    const row = db.prepare(`
-      SELECT p.*, c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon
-      FROM products p LEFT JOIN categories c ON p.category = c.id
-      WHERE p.barcode = ?
-    `).get(code);
-    return row ? Product._parseRow(row) : null;
-  },
-
-  create(data) {
-    const now = nowISO();
-    const info = db.prepare(`
-      INSERT INTO products (name, category, petType, price, countInStock, lowStockThreshold, image, description, barcode, variants, expirationDate, rating, numReviews, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      data.name, data.category || null, data.petType || '', Number(data.price) || 0,
-      Number(data.countInStock) || 0, Number(data.lowStockThreshold) || 10,
-      data.image || '', data.description || '', data.barcode || '',
-      JSON.stringify(data.variants || []), data.expirationDate || '',
-      0, 0, now, now
-    );
-    return Product.findById(info.lastInsertRowid);
-  },
-
-  update(id, data) {
-    const fields = []; const params = [];
-    if (data.name !== undefined) { fields.push('name = ?'); params.push(data.name); }
-    if (data.description !== undefined) { fields.push('description = ?'); params.push(data.description); }
-    if (data.price !== undefined) { fields.push('price = ?'); params.push(Number(data.price)); }
-    if (data.category !== undefined) { fields.push('category = ?'); params.push(data.category); }
-    if (data.countInStock !== undefined) { fields.push('countInStock = ?'); params.push(Number(data.countInStock)); }
-    if (data.lowStockThreshold !== undefined) { fields.push('lowStockThreshold = ?'); params.push(Number(data.lowStockThreshold)); }
-    if (data.petType !== undefined) { fields.push('petType = ?'); params.push(data.petType); }
-    if (data.barcode !== undefined) { fields.push('barcode = ?'); params.push(data.barcode); }
-    if (data.expirationDate !== undefined) { fields.push('expirationDate = ?'); params.push(data.expirationDate); }
-    if (data.variants !== undefined) { fields.push('variants = ?'); params.push(JSON.stringify(data.variants)); }
-    if (data.image !== undefined) { fields.push('image = ?'); params.push(data.image); }
-    if (data.rating !== undefined) { fields.push('rating = ?'); params.push(data.rating); }
-    if (data.numReviews !== undefined) { fields.push('numReviews = ?'); params.push(data.numReviews); }
-    if (!fields.length) return Product.findById(id);
-    fields.push('updatedAt = ?'); params.push(nowISO()); params.push(id);
-    db.prepare(`UPDATE products SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-    return Product.findById(id);
-  },
-
-  delete(id) {
-    return db.prepare('DELETE FROM products WHERE id = ?').run(id).changes > 0;
-  },
-
-  countDocuments(filter = {}) {
-    let sql = 'SELECT COUNT(*) as count FROM products';
-    const conditions = []; const params = [];
-    if (filter.countInStock !== undefined) {
-      if (typeof filter.countInStock === 'object') {
-        if (filter.countInStock.$lte !== undefined) { conditions.push('countInStock <= ?'); params.push(filter.countInStock.$lte); }
-        if (filter.countInStock.$gt !== undefined) { conditions.push('countInStock > ?'); params.push(filter.countInStock.$gt); }
-      } else {
-        conditions.push('countInStock = ?'); params.push(filter.countInStock);
+      if (filter.countInStock !== undefined) {
+        if (typeof filter.countInStock === 'object') {
+          if (filter.countInStock.$lte !== undefined) query.countInStock = { $lte: filter.countInStock.$lte };
+          if (filter.countInStock.$gt !== undefined) query.countInStock = { ...query.countInStock, $gt: filter.countInStock.$gt };
+        } else {
+          query.countInStock = filter.countInStock;
+        }
       }
+      if (filter.barcode) query.barcode = filter.barcode;
+      const docs = await ProductModel.find(query)
+        .populate('category')
+        .sort({ createdAt: -1 });
+      return addIds(docs);
+    } catch (error) {
+      console.error('Product.find error:', error);
+      return [];
     }
-    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-    return db.prepare(sql).get(...params).count;
+  },
+
+  async findById(id) {
+    try {
+      const doc = await ProductModel.findById(id).populate('category');
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Product.findById error:', error);
+      return null;
+    }
+  },
+
+  async findByBarcode(code) {
+    try {
+      const doc = await ProductModel.findOne({ barcode: code }).populate('category');
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Product.findByBarcode error:', error);
+      return null;
+    }
+  },
+
+  async create(data) {
+    try {
+      const product = new ProductModel({
+        name: data.name,
+        category: data.category || null,
+        petType: data.petType || '',
+        price: parseFloat(data.price) || 0,
+        countInStock: parseInt(data.countInStock) || 0,
+        lowStockThreshold: parseInt(data.lowStockThreshold) || 10,
+        image: data.image || '',
+        description: data.description || '',
+        barcode: data.barcode || '',
+        variants: Array.isArray(data.variants) ? data.variants : [],
+        expirationDate: data.expirationDate || '',
+        rating: parseFloat(data.rating) || 0,
+        numReviews: parseInt(data.numReviews) || 0,
+      });
+      const saved = await product.save();
+      return addId(saved);
+    } catch (error) {
+      console.error('Product.create error:', error);
+      throw error;
+    }
+  },
+
+  async update(id, data) {
+    try {
+      const updates = {};
+      if (data.name !== undefined) updates.name = data.name;
+      if (data.description !== undefined) updates.description = data.description;
+      if (data.price !== undefined) updates.price = parseFloat(data.price) || 0;
+      if (data.category !== undefined) updates.category = data.category;
+      if (data.countInStock !== undefined) updates.countInStock = parseInt(data.countInStock) || 0;
+      if (data.lowStockThreshold !== undefined) updates.lowStockThreshold = parseInt(data.lowStockThreshold) || 10;
+      if (data.petType !== undefined) updates.petType = data.petType;
+      if (data.barcode !== undefined) updates.barcode = data.barcode;
+      if (data.expirationDate !== undefined) updates.expirationDate = data.expirationDate;
+      if (data.variants !== undefined) updates.variants = Array.isArray(data.variants) ? data.variants : [];
+      if (data.image !== undefined) updates.image = data.image;
+      if (data.rating !== undefined) updates.rating = parseFloat(data.rating) || 0;
+      if (data.numReviews !== undefined) updates.numReviews = parseInt(data.numReviews) || 0;
+      updates.updatedAt = new Date();
+      const doc = await ProductModel.findByIdAndUpdate(id, updates, { new: true }).populate('category');
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Product.update error:', error);
+      throw error;
+    }
+  },
+
+  async delete(id) {
+    try {
+      const result = await ProductModel.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      console.error('Product.delete error:', error);
+      return false;
+    }
+  },
+
+  async countDocuments(filter = {}) {
+    try {
+      let query = {};
+      if (filter.countInStock !== undefined) {
+        if (typeof filter.countInStock === 'object') {
+          if (filter.countInStock.$lte !== undefined) query.countInStock = { $lte: filter.countInStock.$lte };
+          if (filter.countInStock.$gt !== undefined) query.countInStock = { ...query.countInStock, $gt: filter.countInStock.$gt };
+        } else {
+          query.countInStock = filter.countInStock;
+        }
+      }
+      return await ProductModel.countDocuments(query);
+    } catch (error) {
+      console.error('Product.countDocuments error:', error);
+      return 0;
+    }
   },
 
   // ─── Reviews ─────────────────────────────────────────
-  getReviews(productId) {
-    return db.prepare(`
-      SELECT r.*, u.name as userName, u.email as userEmail, u.image as userImage
-      FROM reviews r LEFT JOIN users u ON r.userId = u.id
-      WHERE r.productId = ? ORDER BY r.createdAt DESC
-    `).all(productId).map(r => ({
-      _id: String(r.id),
-      id: r.id,
-      user: r.userId ? { _id: String(r.userId), name: r.userName, email: r.userEmail, image: r.userImage } : null,
-      name: r.name,
-      rating: r.rating,
-      text: r.text,
-      image: r.image || '',
-      status: r.status,
-      date: r.createdAt ? r.createdAt.split('T')[0] : '',
-      createdAt: r.createdAt,
-    }));
+  async getReviews(productId) {
+    try {
+      const reviews = await ReviewModel.find({ productId }).populate('userId', 'name email image').sort({ createdAt: -1 });
+      return reviews.map(r => ({
+        _id: r._id.toString(),
+        id: r._id,
+        user: r.userId ? {
+          _id: r.userId._id.toString(),
+          name: r.userId.name,
+          email: r.userId.email,
+          image: r.userId.image,
+        } : null,
+        name: r.name,
+        rating: r.rating,
+        text: r.text,
+        image: r.image || '',
+        status: r.status,
+        date: r.createdAt ? r.createdAt.toISOString().split('T')[0] : '',
+        createdAt: r.createdAt,
+      }));
+    } catch (error) {
+      console.error('Product.getReviews error:', error);
+      return [];
+    }
   },
 
-  addReview(productId, data) {
-    const now = nowISO();
-    db.prepare(`
-      INSERT INTO reviews (productId, userId, name, rating, text, image, status, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(productId, data.userId || null, data.name || '', data.rating, data.text || '', data.image || '', data.status || 'approved', now, now);
-    Product._recalcRating(productId);
+  async addReview(productId, data) {
+    try {
+      const review = new ReviewModel({
+        productId,
+        userId: data.userId || null,
+        name: data.name || '',
+        rating: data.rating,
+        text: data.text || '',
+        image: data.image || '',
+        status: data.status || 'approved',
+      });
+      await review.save();
+      await Product._recalcRating(productId);
+      return addId(review);
+    } catch (error) {
+      console.error('Product.addReview error:', error);
+      throw error;
+    }
   },
 
-  findReview(reviewId) {
-    const row = db.prepare('SELECT * FROM reviews WHERE id = ?').get(reviewId);
-    return row ? { ...row, _id: String(row.id) } : null;
+  async findReview(reviewId) {
+    try {
+      const doc = await ReviewModel.findById(reviewId);
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Product.findReview error:', error);
+      return null;
+    }
   },
 
-  updateReview(reviewId, data, productId) {
-    const fields = []; const params = [];
-    if (data.rating !== undefined) { fields.push('rating = ?'); params.push(Number(data.rating)); }
-    if (data.text !== undefined) { fields.push('text = ?'); params.push(data.text); }
-    if (data.image !== undefined) { fields.push('image = ?'); params.push(data.image); }
-    if (data.status !== undefined) { fields.push('status = ?'); params.push(data.status); }
-    if (!fields.length) return Product.findReview(reviewId);
-    fields.push('updatedAt = ?'); params.push(nowISO()); params.push(reviewId);
-    db.prepare(`UPDATE reviews SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-    const review = Product.findReview(reviewId);
-    if (review && productId) Product._recalcRating(productId);
-    else if (review) Product._recalcRating(review.productId);
-    return review;
+  async updateReview(reviewId, data, productId) {
+    try {
+      const updates = {};
+      if (data.rating !== undefined) updates.rating = parseInt(data.rating);
+      if (data.text !== undefined) updates.text = data.text;
+      if (data.image !== undefined) updates.image = data.image;
+      if (data.status !== undefined) updates.status = data.status;
+      updates.updatedAt = new Date();
+      const doc = await ReviewModel.findByIdAndUpdate(reviewId, updates, { new: true });
+      if (doc) {
+        const pid = productId || doc.productId;
+        await Product._recalcRating(pid);
+      }
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Product.updateReview error:', error);
+      throw error;
+    }
   },
 
-  deleteReview(reviewId, productId) {
-    const review = Product.findReview(reviewId);
-    if (!review) return false;
-    db.prepare('DELETE FROM reviews WHERE id = ?').run(reviewId);
-    Product._recalcRating(productId || review.productId);
-    return true;
+  async deleteReview(reviewId, productId) {
+    try {
+      const review = await ReviewModel.findByIdAndDelete(reviewId);
+      if (review) {
+        await Product._recalcRating(productId || review.productId);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Product.deleteReview error:', error);
+      return false;
+    }
   },
 
-  _recalcRating(productId) {
-    const stats = db.prepare('SELECT COUNT(*) as cnt, COALESCE(AVG(rating), 0) as avg FROM reviews WHERE productId = ?').get(productId);
-    db.prepare('UPDATE products SET numReviews = ?, rating = ?, updatedAt = ? WHERE id = ?')
-      .run(stats.cnt, stats.avg, nowISO(), productId);
+  async _recalcRating(productId) {
+    try {
+      const reviews = await ReviewModel.find({ productId });
+      const count = reviews.length;
+      const avg = count > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / count : 0;
+      await ProductModel.findByIdAndUpdate(productId, {
+        numReviews: count,
+        rating: avg,
+        updatedAt: new Date(),
+      });
+    } catch (error) {
+      console.error('Product._recalcRating error:', error);
+    }
   },
 
-  // Get all reviews across all products (for admin)
-  getAllReviews() {
-    return db.prepare(`
-      SELECT r.*, p.name as productName, p.image as productImage, p.id as pId,
-             u.name as userName, u.email as userEmail, u.image as userImage
-      FROM reviews r
-      JOIN products p ON r.productId = p.id
-      LEFT JOIN users u ON r.userId = u.id
-      ORDER BY r.createdAt DESC
-    `).all().map(r => ({
-      _id: String(r.id),
-      productId: String(r.pId),
-      productName: r.productName,
-      productImage: r.productImage,
-      user: r.userId ? { _id: String(r.userId), name: r.userName, email: r.userEmail, image: r.userImage } : null,
-      name: r.name,
-      rating: r.rating,
-      text: r.text,
-      image: r.image || '',
-      status: r.status || 'pending',
-      date: r.createdAt ? r.createdAt.split('T')[0] : '',
-    }));
-  },
-
-  _parseRow(row) {
-    if (!row) return null;
-    const category = row.category ? {
-      _id: String(row.category),
-      id: row.category,
-      name: row.categoryName || '',
-      color: row.categoryColor || '',
-      icon: row.categoryIcon || '',
-    } : null;
-    return {
-      ...row,
-      _id: String(row.id),
-      category,
-      variants: typeof row.variants === 'string' ? JSON.parse(row.variants || '[]') : (row.variants || []),
-      isOutOfStock: row.countInStock === 0,
-      isLowStock: row.countInStock > 0 && row.countInStock <= row.lowStockThreshold,
-      // Remove joined category columns
-      categoryName: undefined, categoryColor: undefined, categoryIcon: undefined,
-    };
+  async getAllReviews() {
+    try {
+      const reviews = await ReviewModel.find()
+        .populate('productId', 'name image')
+        .populate('userId', 'name email image')
+        .sort({ createdAt: -1 });
+      return reviews.map(r => ({
+        _id: r._id.toString(),
+        productId: r.productId._id.toString(),
+        productName: r.productId.name,
+        productImage: r.productId.image,
+        user: r.userId ? {
+          _id: r.userId._id.toString(),
+          name: r.userId.name,
+          email: r.userId.email,
+          image: r.userId.image,
+        } : null,
+        name: r.name,
+        rating: r.rating,
+        text: r.text,
+        image: r.image || '',
+        status: r.status || 'pending',
+        date: r.createdAt ? r.createdAt.toISOString().split('T')[0] : '',
+      }));
+    } catch (error) {
+      console.error('Product.getAllReviews error:', error);
+      return [];
+    }
   },
 };
 

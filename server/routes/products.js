@@ -5,14 +5,13 @@ const Product = require('../models/Product');
 const Category = require('../models/Category');
 const Order = require('../models/Order');
 const User = require('../models/User');
-const { db } = require('../database');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fieldSize: 10 * 1024 * 1024 } });
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 
 // ─── MIDDLEWARE ─────────────────────────────────────────────
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -27,8 +26,8 @@ function requireAdmin(req, res, next) {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = parseInt(decoded.userId, 10);
-    const user = User.findById(userId);
+    const userId = decoded.userId;
+    const user = await User.findById(userId);
 
     if (!user) {
       console.warn('[CRUD/Auth] User not found for token:', { userId });
@@ -61,9 +60,9 @@ function requireAdmin(req, res, next) {
 }
 
 // ─── ADMIN: ALL REVIEWS (must be before /:id) ───────────────
-router.get('/reviews/all', (req, res) => {
+router.get('/reviews/all', async (req, res) => {
   try {
-    const reviews = Product.getAllReviews();
+    const reviews = await Product.getAllReviews();
     return res.status(200).json(reviews);
   } catch (err) {
     console.error('Get all reviews error:', err);
@@ -72,14 +71,10 @@ router.get('/reviews/all', (req, res) => {
 });
 
 // ─── INVENTORY: OUT OF STOCK (must be before /:id) ──────────
-router.get('/inventory/out-of-stock', (req, res) => {
+router.get('/inventory/out-of-stock', async (req, res) => {
   try {
-    const products = db.prepare(
-      `SELECT p.*, c.name AS categoryName, c.color AS categoryColor, c.icon AS categoryIcon
-       FROM products p LEFT JOIN categories c ON p.category = c.id
-       WHERE p.countInStock = 0`
-    ).all();
-    return res.status(200).json(products.map(Product._parseRow));
+    const products = await Product.find();
+    return res.status(200).json(products.filter((p) => Number(p.countInStock || 0) === 0));
   } catch (err) {
     console.error('Out of stock error:', err);
     return res.status(500).json({ message: 'Failed to fetch out-of-stock products.' });
@@ -87,14 +82,12 @@ router.get('/inventory/out-of-stock', (req, res) => {
 });
 
 // ─── INVENTORY: LOW STOCK (must be before /:id) ─────────────
-router.get('/inventory/low-stock', (req, res) => {
+router.get('/inventory/low-stock', async (req, res) => {
   try {
-    const products = db.prepare(
-      `SELECT p.*, c.name AS categoryName, c.color AS categoryColor, c.icon AS categoryIcon
-       FROM products p LEFT JOIN categories c ON p.category = c.id
-       WHERE p.countInStock > 0 AND p.countInStock <= p.lowStockThreshold`
-    ).all();
-    return res.status(200).json(products.map(Product._parseRow));
+    const products = await Product.find();
+    return res.status(200).json(
+      products.filter((p) => Number(p.countInStock || 0) > 0 && Number(p.countInStock || 0) <= Number(p.lowStockThreshold || 0))
+    );
   } catch (err) {
     console.error('Low stock error:', err);
     return res.status(500).json({ message: 'Failed to fetch low-stock products.' });
@@ -102,11 +95,12 @@ router.get('/inventory/low-stock', (req, res) => {
 });
 
 // ─── INVENTORY: SUMMARY (must be before /:id) ───────────────
-router.get('/inventory/summary', (req, res) => {
+router.get('/inventory/summary', async (req, res) => {
   try {
-    const total = db.prepare('SELECT COUNT(*) AS cnt FROM products').get().cnt;
-    const outOfStock = db.prepare('SELECT COUNT(*) AS cnt FROM products WHERE countInStock = 0').get().cnt;
-    const lowStock = db.prepare('SELECT COUNT(*) AS cnt FROM products WHERE countInStock > 0 AND countInStock <= lowStockThreshold').get().cnt;
+    const products = await Product.find();
+    const total = products.length;
+    const outOfStock = products.filter((p) => Number(p.countInStock || 0) === 0).length;
+    const lowStock = products.filter((p) => Number(p.countInStock || 0) > 0 && Number(p.countInStock || 0) <= Number(p.lowStockThreshold || 0)).length;
     const inStock = total - outOfStock - lowStock;
     return res.status(200).json({ totalProducts: total, inStock, lowStock, outOfStock });
   } catch (err) {
@@ -116,15 +110,15 @@ router.get('/inventory/summary', (req, res) => {
 });
 
 // ─── GET ALL PRODUCTS ───────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     let products;
     if (req.query.categories) {
       const catIds = req.query.categories.split(',').map(Number).filter(Boolean);
-      products = Product.find({ categoryIds: catIds });
+      products = await Product.find({ categoryIds: catIds });
       console.log('[CRUD] GET products by categories:', { categories: catIds, count: products.length });
     } else {
-      products = Product.find();
+      products = await Product.find();
       console.log('[CRUD] GET all products:', { count: products.length });
     }
     return res.status(200).json(products);
@@ -135,9 +129,9 @@ router.get('/', (req, res) => {
 });
 
 // ─── GET SINGLE PRODUCT ─────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const product = Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id);
     console.log('[CRUD] GET single product:', { id: req.params.id, found: !!product });
     if (!product) return res.status(404).json({ message: 'Product not found.' });
     return res.status(200).json(product);
@@ -148,7 +142,7 @@ router.get('/:id', (req, res) => {
 });
 
 // ─── CREATE PRODUCT ─────────────────────────────────────────
-router.post('/', requireAdmin, upload.single('image'), (req, res) => {
+router.post('/', requireAdmin, upload.single('image'), async (req, res) => {
   try {
     const { name, description, price, category, countInStock, lowStockThreshold, barcode, petType, variants, expirationDate } = req.body;
     
@@ -171,7 +165,7 @@ router.post('/', requireAdmin, upload.single('image'), (req, res) => {
     }
     
     if (category) {
-      const cat = Category.findById(category);
+      const cat = await Category.findById(category);
       if (!cat) {
         console.warn('[CRUD] Invalid category:', { categoryId: category });
         return res.status(400).json({ message: 'Invalid category.' });
@@ -196,9 +190,9 @@ router.post('/', requireAdmin, upload.single('image'), (req, res) => {
       }
     }
 
-    const product = Product.create({
+    const product = await Product.create({
       name, description, price: parseFloat(price),
-      category: category ? parseInt(category) : null,
+      category: category || null,
       countInStock: parseInt(countInStock) || 0,
       lowStockThreshold: parseInt(lowStockThreshold) || 10,
       barcode: barcode || '', petType: petType || '',
@@ -228,12 +222,12 @@ router.post('/', requireAdmin, upload.single('image'), (req, res) => {
 });
 
 // ─── UPDATE PRODUCT ─────────────────────────────────────────
-router.put('/:id', requireAdmin, upload.single('image'), (req, res) => {
+router.put('/:id', requireAdmin, upload.single('image'), async (req, res) => {
   try {
     const productId = req.params.id;
     console.log('[CRUD] UPDATE request:', { admin: req.user?.name, productId, bodyKeys: Object.keys(req.body) });
     
-    const existing = Product.findById(productId);
+    const existing = await Product.findById(productId);
     if (!existing) {
       console.warn('[CRUD] Product not found:', { productId });
       return res.status(404).json({ message: 'Product not found.' });
@@ -244,7 +238,8 @@ router.put('/:id', requireAdmin, upload.single('image'), (req, res) => {
     for (const f of fields) {
       if (req.body[f] !== undefined) {
         if (['price'].includes(f)) updates[f] = parseFloat(req.body[f]);
-        else if (['countInStock', 'lowStockThreshold', 'category'].includes(f)) updates[f] = parseInt(req.body[f]) || 0;
+        else if (['countInStock', 'lowStockThreshold'].includes(f)) updates[f] = parseInt(req.body[f], 10) || 0;
+        else if (f === 'category') updates[f] = req.body[f] || null;
         else updates[f] = req.body[f];
       }
     }
@@ -263,7 +258,7 @@ router.put('/:id', requireAdmin, upload.single('image'), (req, res) => {
     
     console.log('[CRUD] Applying updates:', { fields: Object.keys(updates) });
 
-    const product = Product.update(productId, updates);
+    const product = await Product.update(productId, updates);
     console.log('=====================================================================================================');
     console.log('✅ [CRUD/UPDATE] SUCCESS - PRODUCT UPDATED IN DATABASE');
     console.log('=====================================================================================================');
@@ -286,12 +281,12 @@ router.put('/:id', requireAdmin, upload.single('image'), (req, res) => {
 });
 
 // ─── DELETE PRODUCT ─────────────────────────────────────────
-router.delete('/:id', requireAdmin, (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const productId = req.params.id;
     console.log('[CRUD] DELETE request:', { admin: req.user?.name, productId });
     
-    const deleted = Product.delete(productId);
+    const deleted = await Product.delete(productId);
     if (!deleted) {
       console.warn('[CRUD] Product not found for deletion:', { productId });
       return res.status(404).json({ message: 'Product not found.' });
@@ -314,19 +309,19 @@ router.delete('/:id', requireAdmin, (req, res) => {
 });
 
 // ─── SIMILAR PRODUCTS ──────────────────────────────────────
-router.get('/:id/similar', (req, res) => {
+router.get('/:id/similar', async (req, res) => {
   try {
-    const product = Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found.' });
     const categoryId = product.category?.id || product.category;
     let similar = [];
     if (categoryId) {
-      similar = Product.find({ categoryIds: [categoryId] })
+      similar = (await Product.find({ categoryIds: [categoryId] }))
         .filter(p => String(p.id) !== String(req.params.id))
         .slice(0, 8);
     }
     if (similar.length < 4) {
-      const extra = Product.find()
+      const extra = (await Product.find())
         .filter(p => String(p.id) !== String(req.params.id) && !similar.find(s => s.id === p.id))
         .slice(0, 8 - similar.length);
       similar = [...similar, ...extra];
@@ -339,9 +334,9 @@ router.get('/:id/similar', (req, res) => {
 });
 
 // ─── REVIEWS: GET FOR PRODUCT ────────────────────────────────────
-router.get('/:id/reviews', (req, res) => {
+router.get('/:id/reviews', async (req, res) => {
   try {
-    const reviews = Product.getReviews(req.params.id);
+    const reviews = await Product.getReviews(req.params.id);
     return res.status(200).json(reviews);
   } catch (err) {
     console.error('Get reviews error:', err);
@@ -350,7 +345,7 @@ router.get('/:id/reviews', (req, res) => {
 });
 
 // ─── REVIEWS: ADD ───────────────────────────────────────────
-router.post('/:id/reviews', (req, res) => {
+router.post('/:id/reviews', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ message: 'No auth token.' });
@@ -358,25 +353,12 @@ router.post('/:id/reviews', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     // Check: has user purchased this product?
-    const userId = parseInt(decoded.userId);
-    const productId = parseInt(req.params.id);
-    const purchased = db.prepare(
-      `SELECT 1
-       FROM order_items oi
-       JOIN orders o ON oi.orderId = o.id
-       LEFT JOIN products p ON p.id = ?
-       WHERE o.userId = ?
-         AND o.status = 'Delivered'
-         AND (
-           oi.productId = ?
-           OR (
-             oi.productId IS NULL
-             AND p.id IS NOT NULL
-             AND LOWER(TRIM(COALESCE(oi.name, ''))) = LOWER(TRIM(COALESCE(p.name, '')))
-           )
-         )
-       LIMIT 1`
-    ).get(productId, userId, productId);
+    const userId = decoded.userId;
+    const productId = req.params.id;
+    const deliveredOrders = await Order.find({ userId, status: 'Delivered' });
+    const purchased = deliveredOrders.some((order) =>
+      (order.orderItems || []).some((item) => String(item.productId || item.product || '') === String(productId))
+    );
     if (!purchased) {
       return res.status(403).json({ message: 'You can only review products you have purchased and received.' });
     }
@@ -384,8 +366,8 @@ router.post('/:id/reviews', (req, res) => {
     const { rating, text, image } = req.body;
     if (!rating) return res.status(400).json({ message: 'Rating is required.' });
 
-    const review = Product.addReview(productId, {
-      userId: userId, name: decoded.name || 'User', rating: parseInt(rating), text: text || '',
+    const review = await Product.addReview(productId, {
+      userId: userId, name: decoded.name || 'User', rating: parseInt(rating, 10), text: text || '',
       image: image || '',
     });
     return res.status(201).json({ message: 'Review added.', review });
@@ -397,14 +379,14 @@ router.post('/:id/reviews', (req, res) => {
 });
 
 // ─── REVIEWS: UPDATE ────────────────────────────────────────
-router.put('/:productId/reviews/:reviewId', (req, res) => {
+router.put('/:productId/reviews/:reviewId', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ message: 'No auth token.' });
     const token = authHeader.replace('Bearer ', '');
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    const existingReview = Product.findReview(req.params.reviewId);
+    const existingReview = await Product.findReview(req.params.reviewId);
     if (!existingReview) return res.status(404).json({ message: 'Review not found.' });
 
     const requesterId = String(decoded.userId || '');
@@ -420,7 +402,7 @@ router.put('/:productId/reviews/:reviewId', (req, res) => {
     if (text !== undefined) updates.text = text;
     if (status && isAdmin) updates.status = status;
     if (image !== undefined) updates.image = image;
-    const review = Product.updateReview(req.params.reviewId, updates, parseInt(req.params.productId));
+    const review = await Product.updateReview(req.params.reviewId, updates, req.params.productId);
     return res.status(200).json({ message: 'Review updated.', review });
   } catch (err) {
     console.error('Update review error:', err);
@@ -430,14 +412,14 @@ router.put('/:productId/reviews/:reviewId', (req, res) => {
 });
 
 // ─── REVIEWS: DELETE ────────────────────────────────────────
-router.delete('/:productId/reviews/:reviewId', (req, res) => {
+router.delete('/:productId/reviews/:reviewId', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ message: 'No auth token.' });
     const token = authHeader.replace('Bearer ', '');
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    const existingReview = Product.findReview(req.params.reviewId);
+    const existingReview = await Product.findReview(req.params.reviewId);
     if (!existingReview) return res.status(404).json({ message: 'Review not found.' });
 
     const requesterId = String(decoded.userId || '');
@@ -447,7 +429,7 @@ router.delete('/:productId/reviews/:reviewId', (req, res) => {
       return res.status(403).json({ message: 'You can only delete your own review.' });
     }
 
-    const deleted = Product.deleteReview(req.params.reviewId, parseInt(req.params.productId));
+    await Product.deleteReview(req.params.reviewId, req.params.productId);
     return res.status(200).json({ message: 'Review deleted.' });
   } catch (err) {
     console.error('Delete review error:', err);

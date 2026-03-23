@@ -131,49 +131,17 @@ const Register = (props) => {
             .post(`${baseURL}users/register`, formData, config)
             .then((res) => {
                 if (res.status >= 200 && res.status < 300) {
-                    const requiresVerification = res?.data?.requiresVerification;
-                    const emailDebug = res?.data?.emailDebug;
-                    
-                    // If email verification is NOT required, go directly to login
-                    if (!requiresVerification) {
-                        Toast.show({
-                            topOffset: 60,
-                            type: "success",
-                            text1: "Registration Successful! ✓",
-                            text2: "You can now log in with your credentials",
-                        });
-                        
-                        setTimeout(() => {
-                            navigation.navigate("Login");
-                        }, 1000);
-                        return;
-                    }
-                    
-                    // If email verification IS required, show verification screen
+                    // Email verification disabled - go directly to login
                     Toast.show({
                         topOffset: 60,
                         type: "success",
-                        text1: "Verification Code Sent 📧",
-                        text2: "Check your email for the 6-digit code",
+                        text1: "Registration Successful! ✓",
+                        text2: "You can now log in with your credentials",
                     });
-
-                    if (emailDebug?.fallbackCode || emailDebug?.previewUrl) {
-                        const helperLines = [];
-                        if (emailDebug?.fallbackCode) {
-                            helperLines.push(`Dev fallback code: ${emailDebug.fallbackCode}`);
-                        }
-                        if (emailDebug?.previewUrl) {
-                            helperLines.push('Email preview is available from the Verify Email screen.');
-                        }
-                        Alert.alert('Development verification helper', helperLines.join('\n\n'));
-                    }
-
+                    
                     setTimeout(() => {
-                        navigation.navigate("Verify Email", {
-                            email: normalizedEmail,
-                            emailDebug: emailDebug || null,
-                        });
-                    }, 500);
+                        navigation.navigate("Login");
+                    }, 1000);
                 } else {
                     Toast.show({
                         position: 'bottom',

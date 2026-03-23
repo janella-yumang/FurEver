@@ -9,9 +9,20 @@ const net = require('net');
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-// Initialize SQLite database (creates tables if they don't exist)
-require('./database');
-console.log('✓ SQLite database initialized');
+// Initialize MongoDB database connection
+const { connectDB } = require('./database');
+let dbConnected = false;
+
+// Connect to MongoDB (async - runs on startup)
+connectDB()
+  .then(() => {
+    dbConnected = true;
+    console.log('✓ MongoDB database connected');
+  })
+  .catch((error) => {
+    console.error('✗ MongoDB connection failed:', error.message);
+    // Don't exit, allow graceful handling
+  });
 
 const usersRoutes = require('./routes/users');
 const productsRoutes = require('./routes/products');
@@ -44,7 +55,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.get('/api/v1/health', (_req, res) => {
-  res.status(200).json({ status: 'ok', db: 'sqlite' });
+  res.status(200).json({ status: 'ok', db: 'mongodb', connected: dbConnected });
 });
 
 app.use('/api/v1/users', usersRoutes);

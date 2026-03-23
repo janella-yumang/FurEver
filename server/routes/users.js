@@ -11,18 +11,14 @@ const upload = multer({ storage: multer.memoryStorage() });
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 const SMTP_CONFIGURED = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-const REQUIRE_EMAIL_VERIFICATION = /^(1|true|yes)$/i.test(
-  String(process.env.REQUIRE_EMAIL_VERIFICATION ?? (SMTP_CONFIGURED ? 'true' : (IS_PRODUCTION ? 'false' : 'true')))
-);
+const REQUIRE_EMAIL_VERIFICATION = false;
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 
 if (!process.env.JWT_SECRET) {
   console.warn('⚠ JWT_SECRET is not set. Using development fallback secret. Set JWT_SECRET in .env for stable auth.');
 }
-if (!REQUIRE_EMAIL_VERIFICATION) {
-  console.warn('⚠ Email verification is disabled. Set REQUIRE_EMAIL_VERIFICATION=true and valid SMTP_* env vars to enforce verification.');
-}
+console.warn('⚠ Email verification is disabled for this deployment.');
 
 // ─── Email transporter ──────────────────────────────────────
 let transporter = null;
@@ -118,60 +114,22 @@ router.post('/register', upload.single('image'), async (req, res) => {
     if (!name || !normalizedEmail || !password || !phone) {
       return res.status(400).json({ message: 'Missing required fields.' });
     }
-    const existing = User.findOne({ email: normalizedEmail });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) return res.status(409).json({ message: 'Email already registered.' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const verificationCode = REQUIRE_EMAIL_VERIFICATION ? generateOTP() : null;
-    const verificationExpires = REQUIRE_EMAIL_VERIFICATION
-      ? new Date(Date.now() + 10 * 60 * 1000).toISOString()
-      : null;
-
-    const user = User.create({
+    const user = await User.create({
       name, email: normalizedEmail, password: hashedPassword, phone,
       isAdmin: String(isAdmin) === 'true', role: role || 'customer',
       shippingAddress: shippingAddress || '', preferredPets: safeParseArray(preferredPets),
-      image: '', emailVerified: !REQUIRE_EMAIL_VERIFICATION, verificationCode, verificationExpires,
+      image: '', emailVerified: true, verificationCode: null, verificationExpires: null,
     });
 
-    // Send email asynchronously without blocking the response
-    let emailResult = { delivered: false, mode: emailMode };
-    if (REQUIRE_EMAIL_VERIFICATION && verificationCode) {
-      // Fire and forget - don't wait for email to complete
-      sendVerificationEmail(user.email, verificationCode)
-        .then(result => {
-          emailResult = result;
-          console.log(`[Email] Async email sent for ${user.email}`);
-        })
-        .catch(err => {
-          console.error(`[Email] Async email failed for ${user.email}:`, err.message);
-        });
-    }
-
     const response = {
-      message: REQUIRE_EMAIL_VERIFICATION
-        ? 'Verification code sent to your email'
-        : 'Registration successful. You can now log in.',
+      message: 'Registration successful. You can now log in.',
       user: User.toJSON(user),
-      requiresVerification: REQUIRE_EMAIL_VERIFICATION,
+      requiresVerification: false,
     };
-
-    if (!IS_PRODUCTION) {
-      response.emailDebug = {
-        mode: emailResult?.mode || 'disabled',
-      };
-      if (emailResult?.previewUrl) {
-        response.emailDebug.previewUrl = emailResult.previewUrl;
-      }
-      if (REQUIRE_EMAIL_VERIFICATION && (emailResult?.mode !== 'smtp' || !emailResult?.delivered)) {
-        response.emailDebug.fallbackCode = verificationCode;
-      }
-      if (REQUIRE_EMAIL_VERIFICATION && !emailResult?.delivered) {
-        response.message = 'Verification code generated. Email delivery unavailable in development mode.';
-      } else if (REQUIRE_EMAIL_VERIFICATION && emailResult?.mode !== 'smtp') {
-        response.message = 'Verification code generated. Use Development helper if you cannot access Ethereal email preview.';
-      }
-    }
 
     return res.status(201).json(response);
   } catch (err) {
@@ -183,24 +141,7 @@ router.post('/register', upload.single('image'), async (req, res) => {
 // ─── VERIFY EMAIL ───────────────────────────────────────────
 router.post('/verify-email', async (req, res) => {
   try {
-    if (!REQUIRE_EMAIL_VERIFICATION) {
-      return res.status(200).json({ message: 'Email verification is disabled on this server.' });
-    }
-
-    const { email, code } = req.body;
-    const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail || !code) return res.status(400).json({ message: 'Email and verification code are required.' });
-
-    const user = User.findOne({ email: normalizedEmail });
-    if (!user) return res.status(404).json({ message: 'User not found.' });
-    if (user.emailVerified) return res.status(200).json({ message: 'Email already verified.' });
-    if (user.verificationCode !== code) return res.status(400).json({ message: 'Invalid verification code.' });
-    if (user.verificationExpires && new Date(user.verificationExpires) < new Date()) {
-      return res.status(400).json({ message: 'Verification code has expired. Please request a new one.' });
-    }
-
-    User.update(user.id, { emailVerified: true, verificationCode: null, verificationExpires: null });
-    return res.status(200).json({ message: 'Email verified successfully! You can now log in.' });
+    return res.status(410).json({ message: 'Email verification has been removed from this server.' });
   } catch (err) {
     console.error('Verify email error:', err);
     return res.status(500).json({ message: 'Verification failed.' });
@@ -210,53 +151,7 @@ router.post('/verify-email', async (req, res) => {
 // ─── RESEND CODE ────────────────────────────────────────────
 router.post('/resend-code', async (req, res) => {
   try {
-    if (!REQUIRE_EMAIL_VERIFICATION) {
-      return res.status(400).json({ message: 'Email verification is disabled on this server.' });
-    }
-
-    const { email } = req.body;
-    const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) return res.status(400).json({ message: 'Email is required.' });
-    const user = User.findOne({ email: normalizedEmail });
-    if (!user) return res.status(404).json({ message: 'User not found.' });
-    if (user.emailVerified) return res.status(200).json({ message: 'Email already verified.' });
-
-    const newCode = generateOTP();
-    User.update(user.id, {
-      verificationCode: newCode,
-      verificationExpires: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    });
-    
-    // Send email asynchronously without blocking the response
-    let emailResult = { delivered: false, mode: emailMode };
-    sendVerificationEmail(user.email, newCode)
-      .then(result => {
-        emailResult = result;
-        console.log(`[Email] Async resend email sent to ${user.email}`);
-      })
-      .catch(err => {
-        console.error(`[Email] Async resend email failed for ${user.email}:`, err.message);
-      });
-
-    const response = { message: 'New verification code sent to your email.' };
-    if (!IS_PRODUCTION) {
-      response.emailDebug = {
-        mode: emailResult?.mode || 'disabled',
-      };
-      if (emailResult?.previewUrl) {
-        response.emailDebug.previewUrl = emailResult.previewUrl;
-      }
-      if (emailResult?.mode !== 'smtp' || !emailResult?.delivered) {
-        response.emailDebug.fallbackCode = newCode;
-      }
-      if (!emailResult?.delivered) {
-        response.message = 'New verification code generated. Email delivery unavailable in development mode.';
-      } else if (emailResult?.mode !== 'smtp') {
-        response.message = 'New verification code generated. Use Development helper if you cannot access Ethereal email preview.';
-      }
-    }
-
-    return res.status(200).json(response);
+    return res.status(410).json({ message: 'Email verification has been removed from this server.' });
   } catch (err) {
     console.error('Resend code error:', err);
     return res.status(500).json({ message: 'Failed to resend code.' });
@@ -270,16 +165,13 @@ router.post('/login', async (req, res) => {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail || !password) return res.status(400).json({ message: 'Email and password are required.' });
 
-    const user = User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) return res.status(401).json({ message: 'Invalid credentials.' });
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ message: 'Invalid credentials.' });
-    if (REQUIRE_EMAIL_VERIFICATION && !user.emailVerified) {
-      return res.status(403).json({ message: 'Please verify your email before logging in.', requiresVerification: true, email: user.email });
-    }
-    if (!REQUIRE_EMAIL_VERIFICATION && !user.emailVerified) {
-      User.update(user.id, { emailVerified: true, verificationCode: null, verificationExpires: null });
+    if (!user.emailVerified) {
+      await User.update(user.id, { emailVerified: true, verificationCode: null, verificationExpires: null });
       user.emailVerified = true;
     }
     if (user.isActive === false) {
@@ -304,17 +196,17 @@ router.post('/google-login', async (req, res) => {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) return res.status(400).json({ message: 'Email is required for Google login.' });
 
-    let user = User.findOne({ email: normalizedEmail });
+    let user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       const hashedPassword = await bcrypt.hash(Math.random().toString(36), 10);
-      user = User.create({
+      user = await User.create({
         email: normalizedEmail, name: name || 'Google User',
         password: hashedPassword, phone: '', image: profilePhoto || '',
         emailVerified: true, isAdmin: false, role: 'customer', googleId: googleId || null,
       });
     } else if (!user.emailVerified) {
-      User.update(user.id, { emailVerified: true, googleId: googleId || user.googleId });
-      user = User.findById(user.id);
+      await User.update(user.id, { emailVerified: true, googleId: googleId || user.googleId });
+      user = await User.findById(user.id);
     }
 
     if (user.isActive === false) {
@@ -333,9 +225,9 @@ router.post('/google-login', async (req, res) => {
 });
 
 // ─── GET ALL USERS (admin) ──────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const users = User.find();
+    const users = await User.find();
     return res.status(200).json(users.map(User.toJSON));
   } catch (err) {
     console.error('Get all users error:', err);
@@ -344,9 +236,9 @@ router.get('/', (req, res) => {
 });
 
 // ─── GET USER BY ID ─────────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const user = User.findById(req.params.id);
+    const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
     return res.status(200).json(User.toJSON(user));
   } catch (err) {
@@ -356,9 +248,9 @@ router.get('/:id', (req, res) => {
 });
 
 // ─── UPDATE USER ────────────────────────────────────────────
-router.put('/:id', upload.single('image'), (req, res) => {
+router.put('/:id', upload.single('image'), async (req, res) => {
   try {
-    let user = User.findById(req.params.id);
+    let user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     const { name, email, phone, shippingAddress, preferredPets } = req.body;
@@ -373,7 +265,7 @@ router.put('/:id', upload.single('image'), (req, res) => {
       updates.image = `data:${req.file.mimetype};base64,${b64}`;
     }
 
-    user = User.update(req.params.id, updates);
+    user = await User.update(req.params.id, updates);
     return res.status(200).json(User.toJSON(user));
   } catch (err) {
     console.error('Update user error:', err);
@@ -382,11 +274,11 @@ router.put('/:id', upload.single('image'), (req, res) => {
 });
 
 // ─── TOGGLE ACTIVE ──────────────────────────────────────────
-router.put('/:id/toggle-active', (req, res) => {
+router.put('/:id/toggle-active', async (req, res) => {
   try {
-    let user = User.findById(req.params.id);
+    let user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
-    user = User.update(req.params.id, { isActive: !user.isActive });
+    user = await User.update(req.params.id, { isActive: !user.isActive });
     return res.status(200).json({
       message: `User ${user.isActive ? 'activated' : 'deactivated'} successfully.`,
       user: User.toJSON(user),
@@ -398,15 +290,15 @@ router.put('/:id/toggle-active', (req, res) => {
 });
 
 // ─── CHANGE ROLE ────────────────────────────────────────────
-router.put('/:id/change-role', (req, res) => {
+router.put('/:id/change-role', async (req, res) => {
   try {
     const { role } = req.body;
     if (!role || !['admin', 'customer'].includes(role)) {
       return res.status(400).json({ message: 'Invalid role. Must be admin or customer.' });
     }
-    let user = User.findById(req.params.id);
+    let user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
-    user = User.update(req.params.id, { role, isAdmin: role === 'admin' });
+    user = await User.update(req.params.id, { role, isAdmin: role === 'admin' });
     return res.status(200).json({ message: `User role changed to ${role} successfully.`, user: User.toJSON(user) });
   } catch (err) {
     console.error('Change user role error:', err);
@@ -415,12 +307,11 @@ router.put('/:id/change-role', (req, res) => {
 });
 
 // ─── DEV: MANUAL VERIFY ────────────────────────────────────
-router.post('/dev/verify-manual/:email', (req, res) => {
+router.post('/dev/verify-manual/:email', async (req, res) => {
   try {
-    const user = User.findOne({ email: normalizeEmail(req.params.email) });
+    const user = await User.findOne({ email: normalizeEmail(req.params.email) });
     if (!user) return res.status(404).json({ message: 'User not found.' });
-    const updated = User.update(user.id, { emailVerified: true, verificationCode: null, verificationExpires: null });
-    return res.status(200).json({ message: 'Email manually verified (development only).', user: User.toJSON(updated) });
+    return res.status(200).json({ message: 'Email verification is disabled. User accounts are already treated as verified.', user: User.toJSON(user) });
   } catch (err) {
     console.error('Manual verify error:', err);
     return res.status(500).json({ message: 'Failed to verify email.' });

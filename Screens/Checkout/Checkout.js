@@ -15,10 +15,9 @@ import { Picker } from '@react-native-picker/picker'
 const countries = require("../../assets/data/countries.json");
 import AuthGlobal from '../../Context/Store/AuthGlobal'
 import Toast from 'react-native-toast-message'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import * as SecureStore from 'expo-secure-store'
 import axios from 'axios'
 import baseURL from '../../assets/common/baseurl'
+import { getStoredJwt } from '../../assets/common/authToken'
 const Checkout = (props) => {
     const [user, setUser] = useState('')
     const [orderItems, setOrderItems] = useState([])
@@ -35,11 +34,7 @@ const Checkout = (props) => {
     const context = useContext(AuthGlobal);
 
     const getAuthToken = async () => {
-        const secureToken = await SecureStore.getItemAsync('jwt');
-        if (secureToken) return secureToken;
-        
-        const asyncToken = await AsyncStorage.getItem('jwt');
-        return asyncToken || null;
+        return await getStoredJwt();
     };
 
     const isVoucherCurrentlyAvailable = (voucher) => {

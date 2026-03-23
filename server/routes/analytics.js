@@ -1,6 +1,6 @@
 const express = require('express');
 const Order = require('../models/Order');
-const { db } = require('../database');
+const { User, Product } = require('../database');
 
 const router = express.Router();
 
@@ -41,21 +41,15 @@ function getIsoBounds(range = 'monthly') {
   return { startDate: start.toISOString(), endDate: end.toISOString() };
 }
 
-function buildSalesSummary(startDate, endDate) {
-  const totals = db.prepare(`
-    SELECT COALESCE(SUM(totalPrice), 0) AS revenue, COUNT(*) AS count
-    FROM orders
-    WHERE status != 'Cancelled' AND dateOrdered >= ? AND dateOrdered <= ?
-  `).get(startDate, endDate);
-
-  return {
-    revenue: Number(totals?.revenue || 0),
-    count: Number(totals?.count || 0),
-  };
+async function buildSalesSummary(startDate, endDate) {
+  const buckets = await Order.salesByDate(startDate, endDate, 'day');
+  const revenue = buckets.reduce((sum, item) => sum + Number(item.totalRevenue || 0), 0);
+  const count = buckets.reduce((sum, item) => sum + Number(item.orderCount || 0), 0);
+  return { revenue, count };
 }
 
 // ─── SALES BY DATE RANGE ────────────────────────────────────
-router.get('/sales', (req, res) => {
+router.get('/sales', async (req, res) => {
   try {
     const { startDate, endDate, period, range } = req.query;
     const bounds = (startDate && endDate)
@@ -63,8 +57,8 @@ router.get('/sales', (req, res) => {
       : getIsoBounds(range || 'monthly');
 
     const grouping = period || ((String(range).toLowerCase() === 'yearly' || String(range).toLowerCase() === 'year') ? 'month' : 'day');
-    const salesByDate = Order.salesByDate(bounds.startDate, bounds.endDate, grouping);
-    const totals = buildSalesSummary(bounds.startDate, bounds.endDate);
+    const salesByDate = await Order.salesByDate(bounds.startDate, bounds.endDate, grouping);
+    const totals = await buildSalesSummary(bounds.startDate, bounds.endDate);
 
     return res.status(200).json({
       range: range || null,
@@ -81,9 +75,9 @@ router.get('/sales', (req, res) => {
 });
 
 // ─── SALES TOTALS ───────────────────────────────────────────
-router.get('/sales-totals', (req, res) => {
+router.get('/sales-totals', async (req, res) => {
   try {
-    const totals = Order.salesTotals();
+    const totals = await Order.salesTotals();
     return res.status(200).json(totals);
   } catch (err) {
     console.error('Sales totals error:', err);
@@ -92,9 +86,9 @@ router.get('/sales-totals', (req, res) => {
 });
 
 // ─── MONTHLY REVENUE (last 12 months) ──────────────────────
-router.get('/revenue', (req, res) => {
+router.get('/revenue', async (req, res) => {
   try {
-    const data = Order.monthlyRevenue();
+    const data = await Order.monthlyRevenue();
     return res.status(200).json(data);
   } catch (err) {
     console.error('Revenue analytics error:', err);
@@ -103,10 +97,10 @@ router.get('/revenue', (req, res) => {
 });
 
 // ─── BEST SELLERS ───────────────────────────────────────────
-router.get('/best-sellers', (req, res) => {
+router.get('/best-sellers', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const data = Order.bestSellers(limit);
+    const data = await Order.bestSellers(limit);
     return res.status(200).json(data);
   } catch (err) {
     console.error('Best sellers error:', err);
@@ -115,12 +109,12 @@ router.get('/best-sellers', (req, res) => {
 });
 
 // ─── TOP CUSTOMERS ──────────────────────────────────────────
-router.get('/customer-trends', (req, res) => {
+router.get('/customer-trends', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const topCustomers = Order.topCustomers(limit);
-    const statusDistribution = Order.statusDistribution();
-    const paymentMethods = Order.paymentMethodStats();
+    const topCustomers = await Order.topCustomers(limit);
+    const statusDistribution = await Order.statusDistribution();
+    const paymentMethods = await Order.paymentMethodStats();
     return res.status(200).json({
       topCustomers,
       statusDistribution,
@@ -133,9 +127,9 @@ router.get('/customer-trends', (req, res) => {
 });
 
 // ─── CATEGORY SALES ─────────────────────────────────────────
-router.get('/category-sales', (req, res) => {
+router.get('/category-sales', async (req, res) => {
   try {
-    const data = Order.categorySales();
+    const data = await Order.categorySales();
     return res.status(200).json(data);
   } catch (err) {
     console.error('Category sales error:', err);
@@ -144,19 +138,35 @@ router.get('/category-sales', (req, res) => {
 });
 
 // ─── PRODUCT DISTRIBUTION ───────────────────────────────────
-router.get('/product-distribution', (req, res) => {
+router.get('/product-distribution', async (req, res) => {
   try {
-    const data = db.prepare(
-      `SELECT c.id AS categoryId, c.name AS category, COUNT(p.id) AS productCount, COALESCE(SUM(p.countInStock), 0) AS totalStock
-       FROM products p LEFT JOIN categories c ON p.category = c.id
-       GROUP BY p.category
-       ORDER BY productCount DESC`
-    ).all().map(r => ({
-      _id: r.categoryId ? String(r.categoryId) : 'uncategorized',
-      name: r.category || 'Uncategorized',
-      productCount: Number(r.productCount || 0),
-      totalStock: Number(r.totalStock || 0),
-    }));
+    const data = await Product.aggregate([
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryInfo',
+        },
+      },
+      {
+        $group: {
+          _id: '$category',
+          categoryName: { $first: { $arrayElemAt: ['$categoryInfo.name', 0] } },
+          productCount: { $sum: 1 },
+          totalStock: { $sum: '$countInStock' },
+        },
+      },
+      {
+        $project: {
+          _id: { $ifNull: [{ $toString: '$_id' }, 'uncategorized'] },
+          name: { $ifNull: ['$categoryName', 'Uncategorized'] },
+          productCount: 1,
+          totalStock: 1,
+        },
+      },
+      { $sort: { productCount: -1 } },
+    ]);
     return res.status(200).json(data);
   } catch (err) {
     console.error('Product distribution error:', err);
@@ -165,14 +175,14 @@ router.get('/product-distribution', (req, res) => {
 });
 
 // ─── DASHBOARD SUMMARY ─────────────────────────────────────
-router.get('/dashboard-summary', (req, res) => {
+router.get('/dashboard-summary', async (req, res) => {
   try {
-    const totalOrders = db.prepare('SELECT COUNT(*) AS cnt FROM orders').get().cnt;
-    const totalRevenue = db.prepare("SELECT COALESCE(SUM(totalPrice), 0) AS total FROM orders WHERE status != 'Cancelled'").get().total;
-    const totalUsers = db.prepare('SELECT COUNT(*) AS cnt FROM users').get().cnt;
-    const totalProducts = db.prepare('SELECT COUNT(*) AS cnt FROM products').get().cnt;
-    const pendingOrders = db.prepare("SELECT COUNT(*) AS cnt FROM orders WHERE status = 'Pending'").get().cnt;
-    const lowStock = db.prepare('SELECT COUNT(*) AS cnt FROM products WHERE countInStock <= lowStockThreshold').get().cnt;
+    const totalOrders = await Order.find();
+    const totals = await Order.salesTotals();
+    const totalUsers = await User.countDocuments({});
+    const totalProducts = await Product.countDocuments({});
+    const pendingOrders = await Order.find({ status: 'Pending' });
+    const lowStock = await Product.countDocuments({ $expr: { $lte: ['$countInStock', '$lowStockThreshold'] } });
 
     const now = new Date();
     const todayStart = new Date(now);
@@ -187,17 +197,21 @@ router.get('/dashboard-summary', (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
-    const today = buildSalesSummary(todayStart.toISOString(), now.toISOString());
-    const thisWeek = buildSalesSummary(weekStart.toISOString(), now.toISOString());
-    const thisMonth = buildSalesSummary(monthStart.toISOString(), now.toISOString());
-    const thisYear = buildSalesSummary(yearStart.toISOString(), now.toISOString());
-    const allTime = Order.salesTotals();
+    const today = await buildSalesSummary(todayStart.toISOString(), now.toISOString());
+    const thisWeek = await buildSalesSummary(weekStart.toISOString(), now.toISOString());
+    const thisMonth = await buildSalesSummary(monthStart.toISOString(), now.toISOString());
+    const thisYear = await buildSalesSummary(yearStart.toISOString(), now.toISOString());
+    const allTime = totals;
 
-    const statusDist = Order.statusDistribution();
-    const paymentDist = Order.paymentMethodStats();
+    const statusDist = await Order.statusDistribution();
+    const paymentDist = await Order.paymentMethodStats();
 
     return res.status(200).json({
-      totalOrders, totalRevenue, totalUsers, totalProducts, pendingOrders,
+      totalOrders: totalOrders.length,
+      totalRevenue: Number(totals?.totalRevenue || 0),
+      totalUsers,
+      totalProducts,
+      pendingOrders: pendingOrders.length,
       lowStock,
       today,
       thisWeek,

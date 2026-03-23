@@ -1,36 +1,64 @@
-const { db, addId, addIds, nowISO } = require('../database');
+const { Category: CategoryModel, addId, addIds } = require('../database');
 
 const Category = {
-  find() {
-    return db.prepare('SELECT * FROM categories ORDER BY createdAt DESC').all().map(r => addId(r));
+  async find() {
+    try {
+      const docs = await CategoryModel.find().sort({ createdAt: -1 });
+      return addIds(docs);
+    } catch (error) {
+      console.error('Category.find error:', error);
+      return [];
+    }
   },
 
-  findById(id) {
-    const row = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
-    return row ? addId(row) : null;
+  async findById(id) {
+    try {
+      const doc = await CategoryModel.findById(id);
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Category.findById error:', error);
+      return null;
+    }
   },
 
-  create(data) {
-    const now = nowISO();
-    const info = db.prepare(
-      'INSERT INTO categories (name, color, icon, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)'
-    ).run(data.name, data.color || '', data.icon || '', now, now);
-    return Category.findById(info.lastInsertRowid);
+  async create(data) {
+    try {
+      const category = new CategoryModel({
+        name: data.name,
+        color: data.color || '',
+        icon: data.icon || '',
+      });
+      const saved = await category.save();
+      return addId(saved);
+    } catch (error) {
+      console.error('Category.create error:', error);
+      throw error;
+    }
   },
 
-  update(id, data) {
-    const fields = []; const params = [];
-    if (data.name !== undefined) { fields.push('name = ?'); params.push(data.name); }
-    if (data.color !== undefined) { fields.push('color = ?'); params.push(data.color); }
-    if (data.icon !== undefined) { fields.push('icon = ?'); params.push(data.icon); }
-    if (!fields.length) return Category.findById(id);
-    fields.push('updatedAt = ?'); params.push(nowISO()); params.push(id);
-    db.prepare(`UPDATE categories SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-    return Category.findById(id);
+  async update(id, data) {
+    try {
+      const updates = {};
+      if (data.name !== undefined) updates.name = data.name;
+      if (data.color !== undefined) updates.color = data.color;
+      if (data.icon !== undefined) updates.icon = data.icon;
+      updates.updatedAt = new Date();
+      const doc = await CategoryModel.findByIdAndUpdate(id, updates, { new: true });
+      return doc ? addId(doc) : null;
+    } catch (error) {
+      console.error('Category.update error:', error);
+      throw error;
+    }
   },
 
-  delete(id) {
-    return db.prepare('DELETE FROM categories WHERE id = ?').run(id).changes > 0;
+  async delete(id) {
+    try {
+      const result = await CategoryModel.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      console.error('Category.delete error:', error);
+      return false;
+    }
   },
 };
 

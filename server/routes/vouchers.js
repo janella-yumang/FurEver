@@ -6,7 +6,7 @@ const User = require('../models/User');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -16,8 +16,8 @@ function requireAdmin(req, res, next) {
 
     const token = authHeader.replace('Bearer ', '').trim();
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = parseInt(decoded.userId, 10);
-    const user = User.findById(userId);
+    const userId = decoded.userId;
+    const user = await User.findById(userId);
 
     if (!user) {
       console.warn('[Voucher/Auth] User not found:', { userId });
@@ -55,17 +55,23 @@ function isCurrentlyAvailable(voucher) {
   return true;
 }
 
-// ─── GET ACTIVE VOUCHERS (PUBLIC) ──────────────────────────
-router.get('/public/active', (req, res) => {
+// ─── GET ACTIVE VOUCHERS (PUBLIC) - NEW ONES FIRST ──────────
+router.get('/public/active', async (req, res) => {
   try {
-    const vouchers = Voucher.find({ isActive: true, notExpired: true })
+    const vouchers = (await Voucher.find({ isActive: true, notExpired: true }))
       .filter(isCurrentlyAvailable)
       .sort((a, b) => {
+        // Sort by newest first (recently created), then by expiration date
+        const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (bCreated !== aCreated) return bCreated - aCreated; // Newest first
+        
         const aExpiry = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
         const bExpiry = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
         return aExpiry - bExpiry;
       });
-
+    
+    console.log('[Banner] Fetching active vouchers:', { count: vouchers.length, newest: vouchers[0]?.title });
     return res.status(200).json(vouchers);
   } catch (err) {
     console.error('Get public active vouchers error:', err);
@@ -74,9 +80,9 @@ router.get('/public/active', (req, res) => {
 });
 
 // ─── GET SINGLE ACTIVE VOUCHER (PUBLIC) ────────────────────
-router.get('/public/active/:id', (req, res) => {
+router.get('/public/active/:id', async (req, res) => {
   try {
-    const voucher = Voucher.findById(req.params.id);
+    const voucher = await Voucher.findById(req.params.id);
     if (!voucher || !isCurrentlyAvailable(voucher)) {
       return res.status(404).json({ message: 'Voucher not found or unavailable.' });
     }
@@ -89,9 +95,9 @@ router.get('/public/active/:id', (req, res) => {
 });
 
 // ─── GET ALL VOUCHERS ───────────────────────────────────────
-router.get('/', requireAdmin, (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
   try {
-    const vouchers = Voucher.find();
+    const vouchers = await Voucher.find();
     return res.status(200).json(vouchers);
   } catch (err) {
     console.error('Get vouchers error:', err);
@@ -100,9 +106,9 @@ router.get('/', requireAdmin, (req, res) => {
 });
 
 // ─── GET SINGLE VOUCHER ─────────────────────────────────────
-router.get('/:id', requireAdmin, (req, res) => {
+router.get('/:id', requireAdmin, async (req, res) => {
   try {
-    const voucher = Voucher.findById(req.params.id);
+    const voucher = await Voucher.findById(req.params.id);
     if (!voucher) return res.status(404).json({ message: 'Voucher not found.' });
     return res.status(200).json(voucher);
   } catch (err) {
@@ -112,7 +118,7 @@ router.get('/:id', requireAdmin, (req, res) => {
 });
 
 // ─── CREATE VOUCHER ─────────────────────────────────────────
-router.post('/', requireAdmin, (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const { title, message, imageUrl, promoCode, discountType, discountValue,
             maxDiscount, minOrderAmount, startsAt, expiresAt, isActive, maxClaims } = req.body;
@@ -136,7 +142,7 @@ router.post('/', requireAdmin, (req, res) => {
       return res.status(400).json({ message: `Missing required fields: ${missing.join(', ')}` });
     }
 
-    const existing = Voucher.findByCode(promoCode);
+    const existing = await Voucher.findByCode(promoCode);
     if (existing) {
       console.warn('[CRUD] Duplicate voucher code:', { promoCode });
       return res.status(409).json({ message: 'A voucher with this promo code already exists.' });
@@ -148,7 +154,7 @@ router.post('/', requireAdmin, (req, res) => {
       return res.status(500).json({ message: 'Admin ID not available.' });
     }
 
-    const voucher = Voucher.create({
+    const voucher = await Voucher.create({
       title, message, imageUrl, promoCode, discountType, discountValue,
       maxDiscount: maxDiscount || 0,
       minOrderAmount: minOrderAmount || 0,
@@ -159,7 +165,18 @@ router.post('/', requireAdmin, (req, res) => {
       createdByUserId: adminId,
     });
     
-    console.log('[CRUD] Voucher created successfully:', { id: voucher.id, code: voucher.promoCode, discount: voucher.discountValue });
+    console.log('=====================================================================================================');
+    console.log('✅ [CRUD/CREATE] NEW PROMOTION CREATED - WILL DISPLAY IN BANNER');
+    console.log('=====================================================================================================');
+    console.log('[CRUD/CREATE] Voucher details:', { 
+      id: voucher.id, 
+      title: voucher.title,
+      code: voucher.promoCode, 
+      discount: `${voucher.discountValue}${(voucher.discountType || '').toLowerCase() === 'fixed' ? ' PHP' : '%'}`,
+      active: voucher.isActive,
+      createdAt: voucher.createdAt
+    });
+    console.log('=====================================================================================================');
     return res.status(201).json(voucher);
   } catch (err) {
     console.error('[CRUD] Create voucher error:', { message: err?.message, stack: err?.stack });
@@ -168,9 +185,9 @@ router.post('/', requireAdmin, (req, res) => {
 });
 
 // ─── UPDATE VOUCHER ─────────────────────────────────────────
-router.put('/:id', requireAdmin, (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   try {
-    const voucher = Voucher.findById(req.params.id);
+    const voucher = await Voucher.findById(req.params.id);
     if (!voucher) return res.status(404).json({ message: 'Voucher not found.' });
 
     const fields = ['title', 'message', 'imageUrl', 'promoCode', 'discountType',
@@ -183,13 +200,13 @@ router.put('/:id', requireAdmin, (req, res) => {
 
     // Prevent duplicate promo codes from another voucher
     if (updates.promoCode) {
-      const existing = Voucher.findByCode(updates.promoCode);
+      const existing = await Voucher.findByCode(updates.promoCode);
       if (existing && String(existing.id) !== String(req.params.id)) {
         return res.status(409).json({ message: 'A voucher with this promo code already exists.' });
       }
     }
 
-    const updated = Voucher.update(req.params.id, updates);
+    const updated = await Voucher.update(req.params.id, updates);
     return res.status(200).json(updated);
   } catch (err) {
     console.error('Update voucher error:', err);
@@ -198,11 +215,11 @@ router.put('/:id', requireAdmin, (req, res) => {
 });
 
 // ─── TOGGLE ACTIVE STATUS ───────────────────────────────────
-router.patch('/:id/toggle', requireAdmin, (req, res) => {
+router.patch('/:id/toggle', requireAdmin, async (req, res) => {
   try {
-    const voucher = Voucher.findById(req.params.id);
+    const voucher = await Voucher.findById(req.params.id);
     if (!voucher) return res.status(404).json({ message: 'Voucher not found.' });
-    const updated = Voucher.update(req.params.id, { isActive: !voucher.isActive });
+    const updated = await Voucher.update(req.params.id, { isActive: !voucher.isActive });
     return res.status(200).json(updated);
   } catch (err) {
     console.error('Toggle voucher error:', err);
@@ -211,9 +228,9 @@ router.patch('/:id/toggle', requireAdmin, (req, res) => {
 });
 
 // ─── DELETE VOUCHER ─────────────────────────────────────────
-router.delete('/:id', requireAdmin, (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
-    const deleted = Voucher.delete(req.params.id);
+    const deleted = await Voucher.delete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Voucher not found.' });
     return res.status(200).json({ message: 'Voucher deleted.' });
   } catch (err) {

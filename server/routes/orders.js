@@ -6,13 +6,12 @@ const User = require('../models/User');
 const Product = require('../models/Product');
 const Notification = require('../models/Notification');
 const Voucher = require('../models/Voucher');
-const { db } = require('../database');
 const { isExpoPushToken, isLikelyFcmToken, sendPushMessages } = require('../pushService');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'furever-dev-jwt-secret-change-me';
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -21,8 +20,8 @@ function requireAuth(req, res, next) {
 
     const token = authHeader.replace('Bearer ', '').trim();
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = parseInt(decoded.userId, 10);
-    const user = User.findById(userId);
+    const userId = decoded.userId;
+    const user = await User.findById(userId);
     if (!user || user.isActive === false) {
       return res.status(401).json({ message: 'Invalid or inactive account.' });
     }
@@ -97,7 +96,7 @@ function resolveFcmTokenForUser(user) {
 }
 
 // ─── GET ALL ORDERS ─────────────────────────────────────────
-router.get('/', requireAuth, (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     if (!req.user) {
       return res.status(401).json({ message: 'User not found in request.' });
@@ -105,9 +104,9 @@ router.get('/', requireAuth, (req, res) => {
 
     let orders = [];
     if (req.user.isAdmin) {
-      orders = Order.find();
+      orders = await Order.find();
     } else {
-      orders = Order.find({ user: parseInt(req.user.id, 10) });
+      orders = await Order.find({ user: req.user.id || req.user._id });
     }
 
     // Ensure we return an array
@@ -120,14 +119,14 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // ─── GET ORDERS BY USER ─────────────────────────────────────
-router.get('/user/:userId', requireAuth, (req, res) => {
+router.get('/user/:userId', requireAuth, async (req, res) => {
   try {
-    const requestedUserId = parseInt(req.params.userId, 10);
-    if (!req.user.isAdmin && req.user.id !== requestedUserId) {
+    const requestedUserId = req.params.userId;
+    if (!req.user.isAdmin && String(req.user.id || req.user._id) !== String(requestedUserId)) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
-    const orders = Order.find({ user: requestedUserId });
+    const orders = await Order.find({ user: requestedUserId });
     return res.status(200).json(orders);
   } catch (err) {
     console.error('Get user orders error:', err);
@@ -136,12 +135,12 @@ router.get('/user/:userId', requireAuth, (req, res) => {
 });
 
 // ─── GET SINGLE ORDER ───────────────────────────────────────
-router.get('/:id', requireAuth, (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
-    const order = Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
-    if (!req.user.isAdmin && parseInt(order.userId, 10) !== parseInt(req.user.id, 10)) {
+    if (!req.user.isAdmin && String(order.userId) !== String(req.user.id || req.user._id)) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
@@ -175,9 +174,9 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     const normalizedItems = orderItems.map(item => {
-      const resolvedProductId = parseInt(item.product || item.productId || item._id || item.id);
+      const resolvedProductId = item.product || item.productId || item._id || item.id || null;
       return {
-        product: Number.isNaN(resolvedProductId) ? null : resolvedProductId,
+        product: resolvedProductId,
         name: item.name || '',
         price: parseFloat(item.price) || 0,
         image: item.image || '',
@@ -188,16 +187,16 @@ router.post('/', requireAuth, async (req, res) => {
     const subtotal = normalizedItems.reduce((sum, item) => sum + ((parseFloat(item.price) || 0) * (parseInt(item.quantity, 10) || 1)), 0);
     let appliedVoucher = null;
     let voucherDiscount = 0;
-    const userId = parseInt(user, 10);
+    const userId = user;
 
-    if (!req.user.isAdmin && userId !== parseInt(req.user.id, 10)) {
+    if (!req.user.isAdmin && String(userId) !== String(req.user.id || req.user._id)) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
 
     if (voucherId || voucherCode) {
       appliedVoucher = voucherId
-        ? Voucher.findById(parseInt(voucherId, 10))
-        : Voucher.findByCode(voucherCode);
+        ? await Voucher.findById(voucherId)
+        : await Voucher.findByCode(voucherCode);
 
       if (!appliedVoucher || !appliedVoucher.isActive) {
         return res.status(400).json({ message: 'Selected voucher is invalid or inactive.' });
@@ -213,7 +212,7 @@ router.post('/', requireAuth, async (req, res) => {
       if (appliedVoucher.minOrderAmount > 0 && subtotal < appliedVoucher.minOrderAmount) {
         return res.status(400).json({ message: `Voucher requires a minimum order of ₱${appliedVoucher.minOrderAmount.toFixed(2)}.` });
       }
-      if (!Voucher.hasUnusedClaim(appliedVoucher.id, userId)) {
+      if (!await Voucher.hasUnusedClaim(appliedVoucher.id || appliedVoucher._id, userId)) {
         return res.status(400).json({ message: 'You must claim this voucher before using it.' });
       }
 
@@ -235,7 +234,7 @@ router.post('/', requireAuth, async (req, res) => {
     console.log('  Voucher discount:', voucherDiscount);
     console.log('  Final total for DB:', finalTotal);
 
-    const order = Order.create({
+    const order = await Order.create({
       shippingAddress1: shippingAddress1 || '',
       shippingAddress2: shippingAddress2 || '',
       phone: phone || '',
@@ -250,25 +249,25 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log('✅ Order created with ID:', order.id, 'Total:', order.totalPrice);
 
-    if (appliedVoucher?.id) {
-      Voucher.markClaimUsed(appliedVoucher.id, userId, order.id);
+    if (appliedVoucher?.id || appliedVoucher?._id) {
+      await Voucher.markClaimUsed(appliedVoucher.id || appliedVoucher._id, userId, order.id || order._id);
     }
 
     // Decrease stock for each item
     for (const item of normalizedItems) {
       if (!item.product) continue;
-      const prod = Product.findById(item.product);
+      const prod = await Product.findById(item.product);
       if (prod) {
         const newStock = Math.max(0, prod.countInStock - (parseInt(item.quantity) || 1));
-        Product.update(item.product, { countInStock: newStock });
+        await Product.update(item.product, { countInStock: newStock });
       }
     }
 
     // Send notification + email to user
-    const userObj = User.findById(parseInt(user));
+    const userObj = await User.findById(user);
     if (userObj) {
       sendOrderStatusEmail(userObj, order, 'Pending');
-      Notification.create({
+      await Notification.create({
         user: userObj.id, type: 'order_confirmed',
         title: 'Order Placed',
         message: `Your order #${order._id} has been placed successfully!`,
@@ -295,7 +294,7 @@ router.post('/', requireAuth, async (req, res) => {
 
         if (pushResult.staleTokens.has(userFcmToken)) {
           console.warn('[OrderCreation/Push] Stale token detected, clearing:', { userId: userObj.id });
-          User.update(userObj.id, { pushToken: null });
+          await User.update(userObj.id, { pushToken: null });
         }
       } else {
         console.warn('[OrderCreation/Push] No valid push token for user:', { userId: userObj.id, hasToken: !!userObj.pushToken });
@@ -303,10 +302,10 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // Notify admins
-    const admins = User.find().filter(u => u.isAdmin);
+    const admins = (await User.find()).filter(u => u.isAdmin);
     const adminPushMessages = [];
     for (const admin of admins) {
-      Notification.create({
+      await Notification.create({
         user: admin.id, type: 'admin_new_order',
         title: 'New Order',
         message: `New order #${order._id} placed${userObj ? ' by ' + userObj.name : ''}.`,
@@ -331,7 +330,7 @@ router.post('/', requireAuth, async (req, res) => {
     if (adminPushResult.staleTokens.size > 0) {
       for (const admin of admins) {
         if (admin.pushToken && adminPushResult.staleTokens.has(admin.pushToken)) {
-          User.update(admin.id, { pushToken: null });
+          await User.update(admin.id, { pushToken: null });
         }
       }
     }
@@ -346,11 +345,11 @@ router.post('/', requireAuth, async (req, res) => {
 // ─── UPDATE ORDER STATUS ────────────────────────────────────
 router.put('/:id', requireAuth, async (req, res) => {
   try {
-    let order = Order.findById(req.params.id);
+    let order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
     const isAdmin = !!req.user.isAdmin;
-    const isOwner = parseInt(order.userId, 10) === parseInt(req.user.id, 10);
+    const isOwner = String(order.userId) === String(req.user.id || req.user._id);
     if (!isAdmin && !isOwner) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
@@ -368,10 +367,10 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (phone !== undefined) updates.phone = phone;
     if (paymentMethod !== undefined) updates.paymentMethod = paymentMethod;
 
-    order = Order.update(req.params.id, updates);
+    order = await Order.update(req.params.id, updates);
 
     if (status && order.userId) {
-      const userObj = User.findById(order.userId);
+      const userObj = await User.findById(order.userId);
       if (userObj) {
         sendOrderStatusEmail(userObj, order, status);
         // Map status to notification type
@@ -382,7 +381,7 @@ router.put('/:id', requireAuth, async (req, res) => {
           'Delivered': 'order_delivered',
           'Cancelled': 'order_canceled',
         };
-        Notification.create({
+        await Notification.create({
           user: userObj.id, type: statusTypeMap[status] || 'order_confirmed',
           title: `Order ${status}`,
           message: `Your order #${order._id} status has been updated to ${status}.`,
@@ -409,7 +408,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
           if (pushResult.staleTokens.has(userFcmToken)) {
             console.warn('[OrderStatus/Push] Stale token detected, clearing:', { userId: userObj.id });
-            User.update(userObj.id, { pushToken: null });
+            await User.update(userObj.id, { pushToken: null });
           }
         } else {
           console.warn('[OrderStatus/Push] No valid push token for user:', { userId: userObj.id, hasToken: !!userObj.pushToken, isSupported: isSupportedPushToken(userObj.pushToken) });
@@ -418,10 +417,10 @@ router.put('/:id', requireAuth, async (req, res) => {
 
       // Notify admins for delivered orders
       if (status === 'Delivered') {
-        const admins = User.find().filter(u => u.isAdmin);
+        const admins = (await User.find()).filter(u => u.isAdmin);
         const adminPushMessages = [];
         for (const admin of admins) {
-          Notification.create({
+          await Notification.create({
             user: admin.id, type: 'admin_order_delivered',
             title: 'Order Delivered',
             message: `Order #${order._id} has been delivered to ${userObj?.name || 'customer'}.`,
@@ -446,7 +445,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         if (adminPushResult.staleTokens.size > 0) {
           for (const admin of admins) {
             if (admin.pushToken && adminPushResult.staleTokens.has(admin.pushToken)) {
-              User.update(admin.id, { pushToken: null });
+              await User.update(admin.id, { pushToken: null });
             }
           }
         }
@@ -456,8 +455,8 @@ router.put('/:id', requireAuth, async (req, res) => {
           const pointsEarned = Math.floor(order.totalPrice || 0);
           if (pointsEarned > 0) {
             const currentPoints = userObj.loyaltyPoints || 0;
-            User.update(userObj.id, { loyaltyPoints: currentPoints + pointsEarned });
-            Notification.create({
+            await User.update(userObj.id, { loyaltyPoints: currentPoints + pointsEarned });
+            await Notification.create({
               user: userObj.id, type: 'loyalty_points',
               title: '🎉 Loyalty Points Earned!',
               message: `You earned ${pointsEarned} loyalty points for order #${order._id}! Total: ${currentPoints + pointsEarned} pts.`,
@@ -477,11 +476,11 @@ router.put('/:id', requireAuth, async (req, res) => {
 // ─── CANCEL ORDER ───────────────────────────────────────────
 router.put('/:id/cancel', requireAuth, async (req, res) => {
   try {
-    let order = Order.findById(req.params.id);
+    let order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
     const isAdmin = !!req.user.isAdmin;
-    const isOwner = parseInt(order.userId, 10) === parseInt(req.user.id, 10);
+    const isOwner = String(order.userId) === String(req.user.id || req.user._id);
     if (!isAdmin && !isOwner) {
       return res.status(403).json({ message: 'Forbidden.' });
     }
@@ -495,21 +494,21 @@ router.put('/:id/cancel', requireAuth, async (req, res) => {
       for (const item of order.orderItems) {
         const prodId = typeof item.product === 'object' ? item.product : (item.productId || item.product);
         if (prodId) {
-          const prod = Product.findById(parseInt(prodId));
+          const prod = await Product.findById(prodId);
           if (prod) {
-            Product.update(parseInt(prodId), { countInStock: prod.countInStock + (item.quantity || 1) });
+            await Product.update(prodId, { countInStock: prod.countInStock + (item.quantity || 1) });
           }
         }
       }
     }
 
-    order = Order.update(req.params.id, { status: 'Cancelled' });
+    order = await Order.update(req.params.id, { status: 'Cancelled' });
 
     if (order.userId) {
-      const userObj = User.findById(order.userId);
+      const userObj = await User.findById(order.userId);
       if (userObj) {
         sendOrderStatusEmail(userObj, order, 'Cancelled');
-        Notification.create({
+        await Notification.create({
           user: userObj.id, type: 'order_canceled',
           title: 'Order Cancelled',
           message: `Your order #${order._id} has been cancelled.`,
@@ -532,7 +531,7 @@ router.put('/:id/cancel', requireAuth, async (req, res) => {
           ]);
 
           if (pushResult.staleTokens.has(userFcmToken)) {
-            User.update(userObj.id, { pushToken: null });
+            await User.update(userObj.id, { pushToken: null });
           }
         }
       }
@@ -545,13 +544,13 @@ router.put('/:id/cancel', requireAuth, async (req, res) => {
 });
 
 // ─── DELETE ORDER ───────────────────────────────────────────
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     if (!req.user.isAdmin) {
       return res.status(403).json({ message: 'Admin access required.' });
     }
 
-    const deleted = Order.delete(req.params.id);
+    const deleted = await Order.delete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Order not found.' });
     return res.status(200).json({ message: 'Order deleted.' });
   } catch (err) {
